@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/tick?secret=@cron_secret",
+      "schedule": "*/10 * * * *"
+    }
+  ]
+}
