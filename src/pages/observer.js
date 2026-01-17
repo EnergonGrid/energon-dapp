@@ -13,6 +13,7 @@ import {
   useDisconnect,
   useReadContract,
   useWatchBlockNumber,
+  useWatchContractEvent,
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -31,11 +32,15 @@ const ATTR_PANEL_INSET = 16;
 const ATTR_PANEL_GAP = 8;
 const ATTR_PANEL_MAX_H = 360;
 
-// Narrow screen sheet sizing (still bottom-docked; no scroll)
+// Collapsed heights
+const ATTR_COLLAPSED_H = 44; // desktop collapsed bar height
+const SHEET_COLLAPSED_H = 52; // narrow collapsed bar height
+
+// Narrow screen sheet sizing (bottom-docked; no scroll)
 const SHEET_INSET = 12;
 const SHEET_H = 320;
 
-// Minimal ABIs (read-only)
+// Minimal ABIs (read-only + events)
 const erc20Abi = [
   {
     type: "function",
@@ -44,7 +49,25 @@ const erc20Abi = [
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ name: "balance", type: "uint256" }],
   },
-  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ name: "", type: "uint8" }] },
+  {
+    type: "function",
+    name: "decimals",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+
+  // ✅ ERC20 Transfer event (for sparks)
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { indexed: true, name: "from", type: "address" },
+      { indexed: true, name: "to", type: "address" },
+      { indexed: false, name: "value", type: "uint256" },
+    ],
+    anonymous: false,
+  },
 ];
 
 const erc721Abi = [
@@ -65,8 +88,35 @@ const erc721Abi = [
     outputs: [{ name: "owner", type: "address" }],
   },
 
-  { type: "function", name: "tokenURI", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ name: "", type: "string" }] },
-  { type: "function", name: "tokenOfOwnerByIndex", stateMutability: "view", inputs: [{ name: "owner", type: "address" }, { name: "index", type: "uint256" }], outputs: [{ name: "", type: "uint256" }] },
+  {
+    type: "function",
+    name: "tokenURI",
+    stateMutability: "view",
+    inputs: [{ name: "tokenId", type: "uint256" }],
+    outputs: [{ name: "", type: "string" }],
+  },
+  {
+    type: "function",
+    name: "tokenOfOwnerByIndex",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "index", type: "uint256" },
+    ],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+
+  // ✅ ERC721 Transfer event (for sparks)
+  {
+    type: "event",
+    name: "Transfer",
+    inputs: [
+      { indexed: true, name: "from", type: "address" },
+      { indexed: true, name: "to", type: "address" },
+      { indexed: true, name: "tokenId", type: "uint256" },
+    ],
+    anonymous: false,
+  },
 ];
 
 // Flare chain (Mainnet)
@@ -127,17 +177,42 @@ function sameAddr(a, b) {
 function ipfsToHttps(uri) {
   if (!uri) return null;
 
+  // Prefer ipfs:// -> https gateway
   if (uri.startsWith("ipfs://")) {
-    return `https://ipfs.io/ipfs/${uri.replace("ipfs://", "")}`;
+    const cidPath = uri.replace("ipfs://", "");
+    return `https://ipfs.io/ipfs/${cidPath}`;
   }
 
   if (uri.startsWith("http://") || uri.startsWith("https://")) return uri;
 
+  // Raw CID
   if (uri.startsWith("bafy") || uri.startsWith("Qm")) {
     return `https://ipfs.io/ipfs/${uri}`;
   }
 
   return uri;
+}
+
+async function fetchJsonWithGatewayFallback(url) {
+  // If it's ipfs.io and fails, try one alternative gateway
+  const gateways = [
+    url,
+    url?.includes("https://ipfs.io/ipfs/")
+      ? url.replace("https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/")
+      : null,
+  ].filter(Boolean);
+
+  let lastErr = null;
+  for (const u of gateways) {
+    try {
+      const res = await fetch(u, { cache: "no-store" });
+      if (!res.ok) throw new Error(`Metadata fetch failed (${res.status})`);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  throw lastErr || new Error("Metadata fetch error");
 }
 
 function attributesToMap(attrs) {
@@ -234,7 +309,196 @@ const RARITY_COLORS = {
 
 const GENESIS_RAINBOW = ["#4FA3FF", "#00FFC6", "#2DFF57", "#FFE600", "#FF9F1C", "#FF3B3B", "#8B5CFF"];
 
-function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
+/**
+ * ⭐ Starfield (gated)
+ */
+function Starfield({ enabled, count = 700 }) {
+  const pointsRef = useRef(null);
+  const velocities = useRef(null);
+
+  const { geometry, vels } = useMemo(() => {
+    const positions = new Float32Array(count * 3);
+    const v = new Float32Array(count);
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3;
+
+      // Wide field behind the cube
+      positions[i3] = (Math.random() - 0.5) * 48;
+      positions[i3 + 1] = (Math.random() - 0.5) * 34;
+      positions[i3 + 2] = -Math.random() * 70 - 8;
+
+      // Forward drift speed (slightly varied)
+      v[i] = 0.010 + Math.random() * 0.020;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    return { geometry: geo, vels: v };
+  }, [count]);
+
+  useEffect(() => {
+    velocities.current = vels;
+  }, [vels]);
+
+  useFrame((state, delta) => {
+    if (!enabled || !pointsRef.current || !velocities.current) return;
+
+    const attr = pointsRef.current.geometry.attributes.position;
+    const positions = attr.array;
+
+    // Speed scale keeps it consistent across devices
+    const speedScale = Math.min(1.8, Math.max(0.6, delta * 60));
+
+    for (let i = 0; i < count; i++) {
+      const i3 = i * 3;
+      positions[i3 + 2] += velocities.current[i] * speedScale;
+
+      // Recycle when it approaches the camera
+      if (positions[i3 + 2] > 4.5) {
+        positions[i3] = (Math.random() - 0.5) * 48;
+        positions[i3 + 1] = (Math.random() - 0.5) * 34;
+        positions[i3 + 2] = -70 - Math.random() * 10;
+        velocities.current[i] = 0.010 + Math.random() * 0.020;
+      }
+    }
+
+    attr.needsUpdate = true;
+  });
+
+  if (!enabled) return null;
+
+  return (
+    <points ref={pointsRef} geometry={geometry} frustumCulled={false}>
+      <pointsMaterial
+        size={0.06}
+        color={"#bfe2ff"}
+        transparent
+        opacity={0.75}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        sizeAttenuation
+      />
+    </points>
+  );
+}
+
+/**
+ * ✨ Transaction Sparks (direction + reward aware, minimal)
+ * event = { direction: "in" | "out", isReward: boolean } OR null
+ */
+function TransactionSparks({ enabled, event, maxSparks = 22 }) {
+  const instRef = useRef(null);
+  const sparksRef = useRef([]);
+  const tmpObj = useMemo(() => new THREE.Object3D(), []);
+  const tmpColor = useMemo(() => new THREE.Color(), []);
+  const COLOR_INBOUND = useMemo(() => new THREE.Color("#BFE9FF"), []);
+  const COLOR_OUTBOUND = useMemo(() => new THREE.Color("#FFD7A1"), []);
+
+  // Create instanceColor buffer once
+  useEffect(() => {
+    if (!instRef.current) return;
+    const colors = new Float32Array(maxSparks * 3);
+    instRef.current.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+  }, [maxSparks]);
+
+  // Add one spark per event
+  useEffect(() => {
+    if (!enabled || !event) return;
+    if (!instRef.current) return;
+
+    const sparks = sparksRef.current;
+
+    let idx = sparks.findIndex((s) => !s.active);
+    if (idx === -1) idx = 0;
+
+    const inbound = event.direction === "in";
+    const rewardBoost = event.isReward ? 1.15 : 1.0;
+
+    sparks[idx] = {
+      active: true,
+      x: (Math.random() - 0.5) * 18,
+      y: (Math.random() - 0.5) * 10,
+      z: -10 - Math.random() * 26,
+      angle: (Math.random() - 0.5) * 0.65,
+      speed: 0.55 + Math.random() * 0.55,
+      life: 0,
+      ttl: 0.85,
+      len: 0.22 + Math.random() * 0.22,
+      wid: 0.035 + Math.random() * 0.02,
+      color: inbound ? COLOR_INBOUND : COLOR_OUTBOUND,
+      boost: rewardBoost,
+    };
+  }, [event, enabled, COLOR_INBOUND, COLOR_OUTBOUND]);
+
+  useFrame((state, delta) => {
+    if (!enabled || !instRef.current) return;
+
+    const sparks = sparksRef.current;
+
+    if (sparks.length < maxSparks) {
+      for (let i = sparks.length; i < maxSparks; i++) sparks.push({ active: false });
+    }
+
+    for (let i = 0; i < maxSparks; i++) {
+      const s = sparks[i];
+      if (!s || !s.active) {
+        tmpObj.position.set(0, 0, 9999);
+        tmpObj.scale.set(0, 0, 0);
+        tmpObj.rotation.set(0, 0, 0);
+        tmpObj.updateMatrix();
+        instRef.current.setMatrixAt(i, tmpObj.matrix);
+
+        if (instRef.current.instanceColor) {
+          tmpColor.setRGB(0, 0, 0);
+          instRef.current.setColorAt(i, tmpColor);
+        }
+        continue;
+      }
+
+      s.life += delta;
+      const p = Math.min(1, s.life / s.ttl);
+
+      s.z += s.speed * (delta * 60) * 0.08;
+      s.x += Math.sin(s.angle) * (delta * 60) * 0.006;
+      s.y += Math.cos(s.angle) * (delta * 60) * 0.004;
+
+      const pop = Math.sin(Math.min(1, p) * Math.PI);
+      const intensity = (0.15 + 0.95 * pop) * (s.boost ?? 1.0);
+
+      tmpObj.position.set(s.x, s.y, s.z);
+      tmpObj.rotation.set(0, 0, s.angle);
+      tmpObj.scale.set(s.len * (0.55 + 0.9 * intensity), s.wid * (0.6 + 0.7 * intensity), 1);
+      tmpObj.updateMatrix();
+      instRef.current.setMatrixAt(i, tmpObj.matrix);
+
+      if (instRef.current.instanceColor) {
+        tmpColor.copy(s.color);
+        tmpColor.multiplyScalar(intensity);
+        instRef.current.setColorAt(i, tmpColor);
+      }
+
+      if (s.life >= s.ttl || s.z > 3.25) {
+        s.active = false;
+      }
+    }
+
+    instRef.current.instanceMatrix.needsUpdate = true;
+    if (instRef.current.instanceColor) instRef.current.instanceColor.needsUpdate = true;
+  });
+
+  if (!enabled) return null;
+
+  return (
+    <instancedMesh ref={instRef} args={[null, null, maxSparks]} frustumCulled={false}>
+      <planeGeometry args={[1, 1]} />
+      <meshBasicMaterial transparent opacity={1} depthWrite={false} blending={THREE.AdditiveBlending} vertexColors />
+    </instancedMesh>
+  );
+}
+
+// ✅ isBound controls when coherent "energy" activates (prevents premature pulse/color/heartbeat)
+function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
   const groupRef = useRef(null);
 
   const cubeMatRef = useRef(null);
@@ -245,31 +509,27 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
 
   // Base palette
   const baseColor = useMemo(() => new THREE.Color("#0B1020"), []);
-  const sphereBaseColor = useMemo(() => new THREE.Color("#0A0A0C"), []); // ✅ black-ish sphere base
+  const sphereBaseColor = useMemo(() => new THREE.Color("#0A0A0C"), []); // black sphere base
   const edgeBaseColor = useMemo(() => new THREE.Color("#22324A"), []);
 
-  const tmpColor = useMemo(() => new THREE.Color("#000000"), []);
   const rainbowColors = useMemo(() => GENESIS_RAINBOW.map((c) => new THREE.Color(c)), []);
-
   const pulseColorRef = useRef(new THREE.Color(RARITY_COLORS.Common));
 
-  // ✅ In SILENT or FRACTURED => render sphere-only (no cube, no edges)
+  // SILENT + FRACTURED => sphere only (no cube, no edges)
   const sphereOnly = mode === "SILENT" || mode === "FRACTURED";
 
-  // Lock base model materials (once)
+  // Lock base model materials once
   const baseLocked = useRef(false);
   useEffect(() => {
     if (!sphereMatRef.current) return;
     if (baseLocked.current) return;
 
-    // Sphere base
     sphereMatRef.current.color.copy(sphereBaseColor);
     sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
     sphereMatRef.current.emissiveIntensity = 0.12;
     sphereMatRef.current.roughness = 0.35;
     sphereMatRef.current.metalness = 0.05;
 
-    // Cube + edges (if present)
     if (cubeMatRef.current) {
       cubeMatRef.current.color.copy(baseColor);
       cubeMatRef.current.transparent = true;
@@ -281,7 +541,7 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
       cubeMatRef.current.ior = 1.35;
       cubeMatRef.current.clearcoat = 1;
       cubeMatRef.current.clearcoatRoughness = 0.1;
-      cubeMatRef.current.envMapIntensity = 1.35;
+      cubeMatRef.current.envMapIntensity = 1.25; // baseline; boosted when bound
       cubeMatRef.current.emissive.copy(baseColor);
       cubeMatRef.current.emissiveIntensity = 0.05;
       cubeMatRef.current.depthWrite = false;
@@ -296,9 +556,10 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
     baseLocked.current = true;
   }, [baseColor, sphereBaseColor, edgeBaseColor]);
 
-  // On each beat: set a NEW pulse color sharply (COHERENT only)
+  // Only set pulse color on beat when COHERENT + bound
   useEffect(() => {
     if (mode !== "COHERENT") return;
+    if (!isBound) return;
 
     pulse.current = 1.0;
 
@@ -311,7 +572,7 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
     const tier = String(rarityTier || "Common");
     const hex = RARITY_COLORS[tier] || RARITY_COLORS.Common;
     pulseColorRef.current.set(hex);
-  }, [beat, mode, rarityTier, isGenesis, rainbowColors]);
+  }, [beat, mode, rarityTier, isGenesis, rainbowColors, isBound]);
 
   useFrame((state, delta) => {
     const t = state.clock.getElapsedTime();
@@ -321,26 +582,24 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
     const isSilent = mode === "SILENT";
     const isDisconnected = mode === "DISCONNECTED";
 
-    // Rotation / motion behavior
     const rotY = isFractured ? 0.55 : 0.12;
     const rotX = isFractured ? 0.22 : 0.04;
 
-    // ✅ Keep fractured “random moments” even though it’s sphere-only:
+    // Fractured motion even sphere-only
     const shakeAmt = isFractured ? 0.055 : 0.0;
     const breatheSpeed = isFractured ? 3.6 : 0.9;
 
-    const decay = isCoherent ? 2.4 : 1.35;
+    const decay = isCoherent && isBound ? 2.4 : 1.35;
     pulse.current = Math.max(0, pulse.current - delta * decay);
 
     const breathe = 0.35 + 0.2 * Math.sin(t * breatheSpeed);
-    const hit = pulse.current;
+    const hit = isBound ? pulse.current : 0;
 
     if (groupRef.current) {
       groupRef.current.rotation.y += delta * rotY;
       groupRef.current.rotation.x += delta * rotX;
 
       if (isFractured) {
-        // “Random-ish” jitter bursts
         const burst = 0.5 + 0.5 * Math.sin(t * 12.0);
         const shake = (0.6 + 0.4 * Math.sin(t * 18)) * (burst + 0.25);
         groupRef.current.position.x = Math.sin(t * 45) * shakeAmt * shake;
@@ -353,32 +612,30 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
         groupRef.current.position.x = 0;
         groupRef.current.position.y = 0;
 
-        const s = 1 + (isCoherent ? hit * 0.04 : 0);
+        const s = 1 + (isCoherent && isBound ? hit * 0.04 : 0);
         groupRef.current.scale.set(s, s, s);
       }
     }
 
-    // Sphere look:
+    // Sphere look
     if (sphereMatRef.current) {
-      // Default: black sphere with subtle “alive” breathing
       sphereMatRef.current.color.copy(sphereBaseColor);
 
-      if (isDisconnected || isSilent) {
+      // COHERENT but not bound => quiet black sphere (no pulse color)
+      if ((isCoherent && !isBound) || isDisconnected || isSilent) {
         sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
         sphereMatRef.current.emissiveIntensity = 0.12 + breathe * 0.06;
       } else if (isFractured) {
-        // fractured: black sphere but with random flicker intensity
         const flick = 0.5 + 0.5 * Math.sin(t * 14);
         sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
         sphereMatRef.current.emissiveIntensity = 0.12 + breathe * 0.08 + flick * 0.18;
       } else {
-        // coherent: use pulse color
         sphereMatRef.current.emissive.copy(pulseColorRef.current);
         sphereMatRef.current.emissiveIntensity = 0.25 + breathe * 0.25 + hit * 4.0;
       }
     }
 
-    // Cube + edges update (only if present and coherent/disconnected)
+    // Cube + edges update (only if present)
     if (!sphereOnly) {
       if (cubeMatRef.current) {
         cubeMatRef.current.color.copy(baseColor);
@@ -386,18 +643,22 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
         cubeMatRef.current.transmission = 0.35;
         cubeMatRef.current.depthWrite = false;
 
-        if (isDisconnected || isSilent) {
+        // ✅ EnvMap boost ONLY when bound
+        const envBase = isBound ? 2.45 : 1.25;
+        const envBreathe = isBound ? 0.25 * Math.sin(t * 0.9) : 0;
+        const envHit = isBound ? hit * 1.25 : 0;
+        cubeMatRef.current.envMapIntensity = envBase + envBreathe + envHit;
+
+        if ((isCoherent && !isBound) || isDisconnected || isSilent) {
           cubeMatRef.current.emissive.copy(baseColor);
           cubeMatRef.current.emissiveIntensity = 0.05 + breathe * 0.04;
-        } else if (isFractured) {
-          // (won’t run because sphereOnly for fractured)
-          tmpColor.set("#FF3B3B").lerp(new THREE.Color("#FF9F1C"), 0.4);
-          cubeMatRef.current.emissive.copy(tmpColor);
-          cubeMatRef.current.emissiveIntensity = 0.12 + breathe * 0.25;
         } else {
           cubeMatRef.current.emissive.copy(pulseColorRef.current);
           cubeMatRef.current.emissiveIntensity = 0.06 + breathe * 0.08 + hit * 1.0;
         }
+
+        cubeMatRef.current.clearcoatRoughness = isBound ? 0.07 : 0.1;
+        cubeMatRef.current.roughness = isBound ? 0.06 : 0.08;
       }
 
       if (edgeMatRef.current) {
@@ -409,13 +670,20 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
 
   return (
     <group ref={groupRef}>
-      {/* ✅ Sphere always exists */}
+      {/* Sphere always exists */}
       <mesh>
         <sphereGeometry args={[0.38, 48, 48]} />
-        <meshStandardMaterial ref={sphereMatRef} color={"#0A0A0C"} emissive={"#000000"} emissiveIntensity={0.12} roughness={0.35} metalness={0.05} />
+        <meshStandardMaterial
+          ref={sphereMatRef}
+          color={"#0A0A0C"}
+          emissive={"#000000"}
+          emissiveIntensity={0.12}
+          roughness={0.35}
+          metalness={0.05}
+        />
       </mesh>
 
-      {/* ✅ Only show cube + edges in COHERENT or DISCONNECTED (NOT SILENT / NOT FRACTURED) */}
+      {/* Only show cube + edges in COHERENT or DISCONNECTED (NOT SILENT / NOT FRACTURED) */}
       {sphereOnly ? null : (
         <>
           <mesh>
@@ -432,7 +700,7 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis }) {
               ior={1.35}
               clearcoat={1}
               clearcoatRoughness={0.1}
-              envMapIntensity={1.35}
+              envMapIntensity={1.25}
               depthWrite={false}
             />
           </mesh>
@@ -454,9 +722,31 @@ function ObserverInner() {
 
   const [beat, setBeat] = useState(0);
 
+  // ✅ Direction + reward aware spark event (single object)
+  // { direction: "in" | "out", isReward: boolean } | null
+  const [sparkEvent, setSparkEvent] = useState(null);
+
+  // ✅ prevent spark spam if lots of transfers come in
+  const lastSparkAt = useRef(0);
+  const emitSpark = (next) => {
+    const now = Date.now();
+    if (now - lastSparkAt.current < 120) return; // ~8 sparks/sec max
+    lastSparkAt.current = now;
+    setSparkEvent(next);
+  };
+
+  // ✅ Left HUD folding (everything under the top header row). Default open.
+  const [hudOpen, setHudOpen] = useState(true);
+
   // Manual token input + touch flag (prevents autofill overwriting user typing)
   const [manualTokenId, setManualTokenId] = useState("");
   const [manualTouched, setManualTouched] = useState(false);
+
+  // Token panel folding (left HUD). Default open.
+  const [tokenPanelOpen, setTokenPanelOpen] = useState(true);
+
+  // Attributes folding (bottom-right / bottom-sheet). Default collapsed.
+  const [attrsOpen, setAttrsOpen] = useState(false);
 
   const [tokenUri, setTokenUri] = useState(null);
   const [meta, setMeta] = useState(null);
@@ -496,26 +786,22 @@ function ObserverInner() {
 
   const cubeN = cubeCount.data ? Number(cubeCount.data) : 0;
 
-  // ✅ REAL mode only (preview removed)
+  // ✅ Mode rules locked
   const mode = !isConnected ? "DISCONNECTED" : cubeN === 0 ? "SILENT" : cubeN === 1 ? "COHERENT" : "FRACTURED";
 
-  useWatchBlockNumber({
-    enabled: isConnected && mode === "COHERENT",
-    onBlockNumber() {
-      setBeat((b) => b + 1);
-    },
-  });
-
-  // Auto tokenId (if enumerable)
+  // Auto tokenId (if enumerable) — only meaningful in COHERENT
   const tokenOfOwnerByIndex = useReadContract({
     abi: erc721Abi,
     address: CUBE_ADDRESS,
     functionName: "tokenOfOwnerByIndex",
     args: address ? [address, 0n] : undefined,
-    query: { enabled: !!address && isConnected && mode === "COHERENT" },
+    query: {
+      enabled: !!address && isConnected && mode === "COHERENT",
+      retry: 0,
+    },
   });
 
-  // ✅ AUTOFILL: when we can read tokenOfOwnerByIndex, populate input once (unless user typed)
+  // Autofill once (unless user typed)
   useEffect(() => {
     if (!isConnected || mode !== "COHERENT") return;
     if (manualTouched) return;
@@ -527,11 +813,22 @@ function ObserverInner() {
     setManualTokenId((prev) => (prev.trim() ? prev : tidStr));
   }, [isConnected, mode, manualTouched, tokenOfOwnerByIndex.isSuccess, tokenOfOwnerByIndex.data]);
 
-  // Reset manual state when leaving coherent or disconnecting
+  // Reset when leaving coherent or disconnecting
   useEffect(() => {
     if (!isConnected || mode !== "COHERENT") {
       setManualTokenId("");
       setManualTouched(false);
+      setTokenPanelOpen(true);
+      setBeat(0);
+      setTokenUri(null);
+      setMeta(null);
+      setMetaErr(null);
+      setLoadingMeta(false);
+      setSparkEvent(null);
+      lastSparkAt.current = 0;
+
+      // Keep current behavior: HUD comes back open when leaving COHERENT/disconnecting
+      setHudOpen(true);
     }
   }, [isConnected, mode]);
 
@@ -539,7 +836,7 @@ function ObserverInner() {
   const manualTokenIdClean = manualTokenId.trim();
   const manualTokenIdValid = /^\d+$/.test(manualTokenIdClean);
 
-  // Candidate tokenId:
+  // Candidate tokenId (only in COHERENT)
   const candidateTokenId = useMemo(() => {
     if (mode !== "COHERENT") return null;
 
@@ -562,26 +859,33 @@ function ObserverInner() {
   });
 
   const ownership = useMemo(() => {
-    if (!isConnected || mode !== "COHERENT" || !address || candidateTokenId == null) return { ok: false, status: "IDLE", owner: null };
+    if (!isConnected || mode !== "COHERENT" || !address || candidateTokenId == null)
+      return { ok: false, status: "IDLE", owner: null };
+
     if (ownerOfRead.isLoading) return { ok: false, status: "CHECKING", owner: null };
+
+    // ownerOf reverts for unminted IDs => wagmi marks error
     if (ownerOfRead.isError) return { ok: false, status: "NOT_MINTED", owner: null };
+
     if (ownerOfRead.isSuccess) {
       const owner = ownerOfRead.data;
       if (sameAddr(owner, address)) return { ok: true, status: "OWNED", owner };
       return { ok: false, status: "NOT_OWNED", owner };
     }
+
     return { ok: false, status: "IDLE", owner: null };
   }, [isConnected, mode, address, candidateTokenId, ownerOfRead.isLoading, ownerOfRead.isError, ownerOfRead.isSuccess, ownerOfRead.data]);
 
+  // ✅ Derived tokenId only when owned
   const derivedTokenId = ownership.ok ? candidateTokenId : null;
 
-  // Clear NFT data whenever token becomes invalid/changes
+  // ✅ Bound only after ownership confirmed
+  const isBound = mode === "COHERENT" && derivedTokenId != null;
+
+  // Collapse token panel automatically once bound (more space)
   useEffect(() => {
-    setTokenUri(null);
-    setMeta(null);
-    setMetaErr(null);
-    setLoadingMeta(false);
-  }, [derivedTokenId]);
+    if (isBound) setTokenPanelOpen(false);
+  }, [isBound]);
 
   // Read tokenURI only when owned
   const tokenUriRead = useReadContract({
@@ -596,7 +900,7 @@ function ObserverInner() {
     if (tokenUriRead.isSuccess && tokenUriRead.data) setTokenUri(tokenUriRead.data);
   }, [tokenUriRead.isSuccess, tokenUriRead.data]);
 
-  // Fetch metadata JSON only when owned + tokenUri exists
+  // Fetch metadata only when owned + tokenUri exists
   useEffect(() => {
     let alive = true;
 
@@ -612,10 +916,7 @@ function ObserverInner() {
         const url = ipfsToHttps(tokenUri);
         if (!url) throw new Error("Missing tokenURI");
 
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) throw new Error(`Metadata fetch failed (${res.status})`);
-
-        const json = await res.json();
+        const json = await fetchJsonWithGatewayFallback(url);
         if (!alive) return;
         setMeta(json);
       } catch (e) {
@@ -647,20 +948,22 @@ function ObserverInner() {
     return r ? String(r) : "Common";
   }, [attrMap]);
 
+  const tokenIdStr = useMemo(() => (derivedTokenId != null ? safeBigIntToString(derivedTokenId) : ""), [derivedTokenId]);
+
   const isGenesis = useMemo(() => {
-    const tid = derivedTokenId != null ? safeBigIntToString(derivedTokenId) : "";
-    if (tid === "1") return true;
+    if (tokenIdStr === "1") return true;
     const g = attrMap["Genesis Status"] || attrMap["Genesis Type"] || attrMap["Genesis"];
     return !!g;
-  }, [derivedTokenId, attrMap]);
+  }, [tokenIdStr, attrMap]);
 
-  const tokenIdStr = useMemo(() => (derivedTokenId != null ? safeBigIntToString(derivedTokenId) : ""), [derivedTokenId]);
   const rarityLabel = useMemo(() => (tokenIdStr === "1" ? "Genesis" : rarityTier), [tokenIdStr, rarityTier]);
 
   const eonText = formatUnitsSafe(eonBal.data, decimals.data);
 
-  const showAttributes = mode === "COHERENT" && derivedTokenId != null && meta && !metaErr;
-  const bottomPad = showAttributes && isNarrow ? SHEET_H + SHEET_INSET * 2 : 0;
+  const canShowAttributes = isBound && meta && !metaErr;
+
+  // Bottom padding ONLY when attributes panel is open AND narrow (so 3D stays above it)
+  const bottomPad = canShowAttributes && isNarrow && attrsOpen ? SHEET_H + SHEET_INSET * 2 : 0;
 
   const ownershipMsg = useMemo(() => {
     if (mode !== "COHERENT" || candidateTokenId == null) return null;
@@ -671,9 +974,58 @@ function ObserverInner() {
     return null;
   }, [mode, candidateTokenId, ownerOfRead.isLoading, ownership.status]);
 
+  // ✅ Heartbeat only runs AFTER bound (prevents premature pulsing)
+  useWatchBlockNumber({
+    enabled: isConnected && mode === "COHERENT" && isBound,
+    onBlockNumber() {
+      setBeat((b) => b + 1);
+    },
+  });
+
+  // ✅ UPDATED: Spark watchers are CONNECTED-only (network-wide visual sparks),
+  // plus spam prevention via emitSpark()
+  useWatchContractEvent({
+    address: CUBE_ADDRESS,
+    abi: erc721Abi,
+    eventName: "Transfer",
+    enabled: isConnected, // ✅ only when connected
+    onLogs(logs) {
+      const l = (logs || [])[0];
+      if (!l) return;
+
+      // network-wide event — no wallet filtering
+      // direction is "visual direction" now (not wallet-relative)
+      emitSpark({
+        direction: Math.random() > 0.5 ? "in" : "out",
+        isReward: false,
+      });
+    },
+  });
+
+  useWatchContractEvent({
+    address: EON_ADDRESS,
+    abi: erc20Abi,
+    eventName: "Transfer",
+    enabled: isConnected, // ✅ only when connected
+    onLogs(logs) {
+      const l = (logs || [])[0];
+      if (!l) return;
+
+      emitSpark({
+        direction: Math.random() > 0.5 ? "in" : "out",
+        isReward: true,
+      });
+    },
+  });
+
+  const displayedCandidateId = useMemo(() => {
+    if (candidateTokenId != null) return safeBigIntToString(candidateTokenId);
+    return "—";
+  }, [candidateTokenId]);
+
   return (
     <div style={{ height: "100vh", background: "#070A12", color: "white", position: "relative", overflow: "hidden" }}>
-      {/* LEFT HUD (clickable) */}
+      {/* LEFT HUD (collapsible under header row) */}
       <div
         style={{
           position: "absolute",
@@ -687,17 +1039,40 @@ function ObserverInner() {
           pointerEvents: "auto",
         }}
       >
+        {/* ✅ Header row stays visible (Energon Guardian / Observer Dashboard / Connect) */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <div>
-            <div style={{ letterSpacing: "0.22em", fontSize: 12, opacity: 0.75 }}>ENERGON GUARDIAN</div>
-            <div style={{ fontSize: 20, marginTop: 6, display: "flex", alignItems: "center", gap: 10 }}>
-              Observer Dashboard <StatusPill mode={mode} />
+          <button
+            onClick={() => setHudOpen((v) => !v)}
+            style={{
+              flex: 1,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              color: "white",
+              cursor: "pointer",
+              textAlign: "left",
+            }}
+            title={hudOpen ? "Collapse HUD" : "Expand HUD"}
+          >
+            <div>
+              <div style={{ letterSpacing: "0.22em", fontSize: 12, opacity: 0.75 }}>ENERGON GUARDIAN</div>
+              <div style={{ fontSize: 20, marginTop: 6, display: "flex", alignItems: "center", gap: 10 }}>
+                Observer Dashboard <StatusPill mode={mode} />
+                <span style={{ opacity: 0.55, fontSize: 12, marginLeft: 2 }}>{hudOpen ? "▴" : "▾"}</span>
+              </div>
             </div>
-          </div>
+          </button>
 
           {!isConnected ? (
             <button
-              onClick={() => connect({ connector: injected() })}
+              onClick={(e) => {
+                e.stopPropagation(); // ✅ prevent header toggle
+                connect({ connector: injected() });
+              }}
               style={{
                 padding: "10px 12px",
                 borderRadius: 12,
@@ -712,7 +1087,10 @@ function ObserverInner() {
             </button>
           ) : (
             <button
-              onClick={() => disconnect()}
+              onClick={(e) => {
+                e.stopPropagation(); // ✅ prevent header toggle
+                disconnect();
+              }}
               style={{
                 padding: "10px 12px",
                 borderRadius: 12,
@@ -728,114 +1106,163 @@ function ObserverInner() {
           )}
         </div>
 
-        <div
-          style={{
-            marginTop: 14,
-            border: "1px solid rgba(255,255,255,0.10)",
-            background: "rgba(255,255,255,0.04)",
-            borderRadius: 16,
-            padding: 14,
-          }}
-        >
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>WALLET</div>
-              <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{isConnected ? shortAddr(address) : "Not connected"}</div>
-            </div>
+        {/* ✅ Everything under the header collapses */}
+        {hudOpen ? (
+          <div
+            style={{
+              marginTop: 14,
+              border: "1px solid rgba(255,255,255,0.10)",
+              background: "rgba(255,255,255,0.04)",
+              borderRadius: 16,
+              padding: 14,
+            }}
+          >
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>WALLET</div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{isConnected ? shortAddr(address) : "Not connected"}</div>
+              </div>
 
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>CUBE COUNT</div>
-              <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{cubeCount.isLoading ? "…" : String(cubeN)}</div>
-            </div>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>CUBE COUNT</div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{cubeCount.isLoading ? "…" : String(cubeN)}</div>
+              </div>
 
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>EON BALANCE</div>
-              <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{isConnected ? eonText : "—"}</div>
-            </div>
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>EON BALANCE</div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{isConnected ? eonText : "—"}</div>
+              </div>
 
-            <div>
-              <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>HEARTBEAT</div>
-              <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
-                {beat} {isConnected && mode !== "COHERENT" ? <span style={{ opacity: 0.6 }}>(locked)</span> : null}
+              <div>
+                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>HEARTBEAT</div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
+                  {mode === "COHERENT" ? (isBound ? beat : "—") : beat}
+                  {isConnected && mode === "COHERENT" && !isBound ? <span style={{ opacity: 0.6 }}> (locked)</span> : null}
+                  {isConnected && mode !== "COHERENT" ? <span style={{ opacity: 0.6 }}> (locked)</span> : null}
+                </div>
               </div>
             </div>
+
+            {/* COHERENT-only NFT viewer */}
+            {mode === "COHERENT" ? (
+              <div style={{ marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
+                {/* When bound + collapsed: compact header line (click to expand again) */}
+                {!tokenPanelOpen && isBound ? (
+                  <button
+                    onClick={() => setTokenPanelOpen(true)}
+                    style={{
+                      width: "100%",
+                      textAlign: "left",
+                      padding: "10px 12px",
+                      borderRadius: 14,
+                      border: "1px solid rgba(255,255,255,0.10)",
+                      background: "rgba(0,0,0,0.18)",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
+                    title="Click to edit token ID"
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontSize: 12, opacity: 0.9 }}>
+                        Token ID: <span style={{ fontWeight: 700, opacity: 0.98 }}>{tokenIdStr}</span>
+                      </div>
+                      <div style={{ fontSize: 12, opacity: 0.9 }}>
+                        Rarity: <span style={{ fontWeight: 700, opacity: 0.98 }}>{rarityLabel}</span>
+                      </div>
+                    </div>
+                  </button>
+                ) : (
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ fontSize: 12, opacity: 0.82 }}>
+                        Token ID: <span style={{ opacity: 0.98, fontWeight: 600 }}>{displayedCandidateId}</span>
+                        {isGenesis ? <span style={{ marginLeft: 10, opacity: 0.75 }}>(Genesis)</span> : null}
+                      </div>
+
+                      <div style={{ fontSize: 12, opacity: 0.82 }}>
+                        Rarity: <span style={{ opacity: 0.98, fontWeight: 600 }}>{isBound ? rarityLabel : "—"}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: 10 }}>
+                      <div style={{ fontSize: 12, opacity: 0.72, marginBottom: 8 }}>Token ID (loads only if owned):</div>
+                      <input
+                        value={manualTokenId}
+                        onChange={(e) => {
+                          setManualTouched(true);
+                          setManualTokenId(e.target.value);
+                        }}
+                        inputMode="numeric"
+                        placeholder="e.g. 1"
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 12,
+                          border:
+                            manualTokenId && !manualTokenIdValid
+                              ? "1px solid rgba(255,70,70,0.65)"
+                              : "1px solid rgba(255,255,255,0.14)",
+                          background: "rgba(0,0,0,0.25)",
+                          color: "white",
+                          outline: "none",
+                        }}
+                      />
+                      {manualTokenId && !manualTokenIdValid ? (
+                        <div style={{ marginTop: 6, fontSize: 11, opacity: 0.75, color: "#ff8a3d" }}>Digits only.</div>
+                      ) : null}
+                      {ownershipMsg ? (
+                        <div style={{ marginTop: 8, fontSize: 12, color: ownershipMsg.color, opacity: 0.95 }}>{ownershipMsg.text}</div>
+                      ) : null}
+                    </div>
+
+                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+                      Metadata:{" "}
+                      {derivedTokenId == null
+                        ? "—"
+                        : loadingMeta
+                        ? "Loading…"
+                        : metaErr
+                        ? <span style={{ color: "#ff8a3d" }}>{metaErr}</span>
+                        : meta
+                        ? "OK"
+                        : "—"}
+                    </div>
+
+                    {isBound ? (
+                      <div style={{ marginTop: 10 }}>
+                        <button
+                          onClick={() => setTokenPanelOpen(false)}
+                          style={{
+                            padding: "8px 10px",
+                            borderRadius: 12,
+                            border: "1px solid rgba(255,255,255,0.12)",
+                            background: "rgba(255,255,255,0.06)",
+                            color: "white",
+                            cursor: "pointer",
+                            fontSize: 12,
+                          }}
+                        >
+                          Collapse
+                        </button>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            ) : null}
+
+            {/* FRACTURED helper text */}
+            {mode === "FRACTURED" ? (
+              <div style={{ marginTop: 12, fontSize: 12, opacity: 0.75 }}>
+                Fractured mode: more than 1 cube detected. (Metadata display disabled by design.)
+              </div>
+            ) : null}
           </div>
-
-          {/* COHERENT-only NFT viewer */}
-          {mode === "COHERENT" ? (
-            <div style={{ marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-                <div style={{ fontSize: 12, opacity: 0.82 }}>
-                  Token ID:{" "}
-                  <span style={{ opacity: 0.98, fontWeight: 600 }}>
-                    {derivedTokenId != null
-                      ? safeBigIntToString(derivedTokenId)
-                      : candidateTokenId != null
-                      ? safeBigIntToString(candidateTokenId)
-                      : tokenOfOwnerByIndex.isLoading
-                      ? "…"
-                      : "—"}
-                  </span>
-                  {isGenesis ? <span style={{ marginLeft: 10, opacity: 0.75 }}>(Genesis)</span> : null}
-                </div>
-
-                <div style={{ fontSize: 12, opacity: 0.82 }}>
-                  Rarity: <span style={{ opacity: 0.98, fontWeight: 600 }}>{derivedTokenId ? rarityLabel : "—"}</span>
-                </div>
-              </div>
-
-              <div style={{ marginTop: 10 }}>
-                <div style={{ fontSize: 12, opacity: 0.72, marginBottom: 8 }}>Token ID (loads only if owned):</div>
-                <input
-                  value={manualTokenId}
-                  onChange={(e) => {
-                    setManualTouched(true);
-                    setManualTokenId(e.target.value);
-                  }}
-                  inputMode="numeric"
-                  placeholder="e.g. 1"
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 12,
-                    border: manualTokenId && !manualTokenIdValid ? "1px solid rgba(255,70,70,0.65)" : "1px solid rgba(255,255,255,0.14)",
-                    background: "rgba(0,0,0,0.25)",
-                    color: "white",
-                    outline: "none",
-                  }}
-                />
-                {manualTokenId && !manualTokenIdValid ? (
-                  <div style={{ marginTop: 6, fontSize: 11, opacity: 0.75, color: "#ff8a3d" }}>Digits only.</div>
-                ) : null}
-                {ownershipMsg ? <div style={{ marginTop: 8, fontSize: 12, color: ownershipMsg.color, opacity: 0.95 }}>{ownershipMsg.text}</div> : null}
-              </div>
-
-              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-                Metadata:{" "}
-                {derivedTokenId == null
-                  ? "—"
-                  : loadingMeta
-                  ? "Loading…"
-                  : metaErr
-                  ? <span style={{ color: "#ff8a3d" }}>{metaErr}</span>
-                  : meta
-                  ? "OK"
-                  : "—"}
-              </div>
-            </div>
-          ) : null}
-
-          {/* FRACTURED helper text */}
-          {mode === "FRACTURED" ? (
-            <div style={{ marginTop: 12, fontSize: 12, opacity: 0.75 }}>
-              Fractured mode: more than 1 cube detected. (Metadata display disabled by design.)
-            </div>
-          ) : null}
-        </div>
+        ) : null}
       </div>
 
-      {/* ATTRIBUTES */}
-      {showAttributes ? (
+      {/* ATTRIBUTES (folds down to bottom-right corner / bottom sheet) */}
+      {canShowAttributes ? (
         <div
           style={
             isNarrow
@@ -844,7 +1271,7 @@ function ObserverInner() {
                   left: SHEET_INSET,
                   right: SHEET_INSET,
                   bottom: SHEET_INSET,
-                  height: SHEET_H,
+                  height: attrsOpen ? SHEET_H : SHEET_COLLAPSED_H,
                   zIndex: 22,
                   padding: 12,
                   boxSizing: "border-box",
@@ -859,13 +1286,14 @@ function ObserverInner() {
                   pointerEvents: "auto",
                   display: "flex",
                   flexDirection: "column",
+                  transition: "height 220ms ease",
                 }
               : {
                   position: "absolute",
                   right: ATTR_PANEL_INSET,
                   bottom: ATTR_PANEL_INSET,
                   width: ATTR_PANEL_W,
-                  maxHeight: ATTR_PANEL_MAX_H,
+                  height: attrsOpen ? ATTR_PANEL_MAX_H : ATTR_COLLAPSED_H,
                   zIndex: 22,
                   padding: 12,
                   boxSizing: "border-box",
@@ -878,33 +1306,62 @@ function ObserverInner() {
                   lineHeight: 1.25,
                   overflow: "hidden",
                   pointerEvents: "auto",
+                  transition: "height 220ms ease",
                 }
           }
         >
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ fontSize: 12, opacity: 0.85, letterSpacing: "0.10em" }}>ATTRIBUTES</div>
-            <div style={{ fontSize: 10, opacity: 0.6 }}>
-              Showing {attrsCapped.length}/{MAX_ATTRS}
-            </div>
-          </div>
-
-          <div
+          {/* Header always visible and toggles open/closed */}
+          <button
+            onClick={() => setAttrsOpen((v) => !v)}
             style={{
-              marginTop: 10,
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: ATTR_PANEL_GAP,
-              overflow: "hidden",
-              alignContent: "start",
-              flex: 1,
+              width: "100%",
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              gap: 10,
+              padding: 0,
+              border: "none",
+              background: "transparent",
+              color: "white",
+              cursor: "pointer",
+              textAlign: "left",
             }}
+            title={attrsOpen ? "Collapse attributes" : "Expand attributes"}
           >
-            {attrsCapped.map((a, idx) => {
-              const k = a?.trait_type ?? a?.traitType ?? `Attribute ${idx + 1}`;
-              const v = a?.value;
-              return <AttrTileSmall key={`${k}-${idx}`} k={k} v={v} />;
-            })}
-          </div>
+            <div
+              style={{
+                fontSize: 12,
+                opacity: 0.85,
+                letterSpacing: "0.10em",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              ATTRIBUTES <span style={{ opacity: 0.65, fontSize: 12 }}>{attrsOpen ? "▴" : "▾"}</span>
+            </div>
+            <div style={{ fontSize: 10, opacity: 0.6 }}>{attrsOpen ? `Showing ${attrsCapped.length}/${MAX_ATTRS}` : null}</div>
+          </button>
+
+          {attrsOpen ? (
+            <div
+              style={{
+                marginTop: 10,
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: ATTR_PANEL_GAP,
+                overflow: "hidden",
+                alignContent: "start",
+                flex: 1,
+              }}
+            >
+              {attrsCapped.map((a, idx) => {
+                const k = a?.trait_type ?? a?.traitType ?? `Attribute ${idx + 1}`;
+                const v = a?.value;
+                return <AttrTileSmall key={`${k}-${idx}`} k={k} v={v} />;
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -924,7 +1381,13 @@ function ObserverInner() {
           <directionalLight position={[3, 4, 2]} intensity={1.35} />
           <pointLight position={[-3, -2, 2]} intensity={0.7} />
 
-          <EnergonCube beat={beat} mode={mode} rarityTier={rarityTier} isGenesis={isGenesis} />
+          {/* 🌌 Starfield ONLY when COHERENT + verified/bound */}
+          <Starfield enabled={mode === "COHERENT" && isBound} />
+
+          {/* ✨ Transaction sparks still only RENDER when COHERENT + bound (even though we listen when connected) */}
+          <TransactionSparks enabled={mode === "COHERENT" && isBound} event={sparkEvent} />
+
+          <EnergonCube beat={beat} mode={mode} rarityTier={rarityTier} isGenesis={isGenesis} isBound={isBound} />
           <Environment preset="city" />
         </Canvas>
       </div>
