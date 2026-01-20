@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ethers } from "ethers";
 import Nav from "../components/Nav";
+
 import {
   ABI,
   CONTRACT_ADDRESS,
@@ -22,10 +23,17 @@ export default function Mint() {
   const [qty, setQty] = useState(1);
   const [isMinting, setIsMinting] = useState(false);
 
-  // Read-only provider (works before wallet connect)
+  // -----------------------------
+  // Read-only provider (SAFE)
+  // -----------------------------
+  const RO_RPC =
+    Array.isArray(RPCS?.[MAINNET_CHAIN_ID]) && RPCS[MAINNET_CHAIN_ID].length
+      ? RPCS[MAINNET_CHAIN_ID][0]
+      : RPCS?.[MAINNET_CHAIN_ID];
+
   const roProvider = useMemo(() => {
-    return new ethers.JsonRpcProvider(RPCS[MAINNET_CHAIN_ID]);
-  }, []);
+    return new ethers.JsonRpcProvider(RO_RPC);
+  }, [RO_RPC]);
 
   const chainOk = Number(chainId) === MAINNET_CHAIN_ID;
 
@@ -41,6 +49,9 @@ export default function Mint() {
     );
   }
 
+  // -----------------------------
+  // Network helpers
+  // -----------------------------
   async function switchToMainnet() {
     if (!window.ethereum) {
       setStatus("MetaMask not found");
@@ -50,7 +61,7 @@ export default function Mint() {
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: MAINNET_HEX }], // 0x0e
+        params: [{ chainId: MAINNET_HEX }],
       });
       setStatus("Switched to Flare Mainnet ✅");
     } catch (err) {
@@ -63,7 +74,7 @@ export default function Mint() {
                 chainId: MAINNET_HEX,
                 chainName: NETWORK_NAME,
                 nativeCurrency: { name: "Flare", symbol: "FLR", decimals: 18 },
-                rpcUrls: [RPCS[MAINNET_CHAIN_ID]],
+                rpcUrls: [RO_RPC],
               },
             ],
           });
@@ -85,6 +96,7 @@ export default function Mint() {
 
     try {
       setStatus("Connecting…");
+
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const net = await browserProvider.getNetwork();
       setChainId(Number(net.chainId));
@@ -105,6 +117,9 @@ export default function Mint() {
     }
   }
 
+  // -----------------------------
+  // Read contract state
+  // -----------------------------
   async function refreshRead(optionalProvider = null) {
     try {
       const providerToUse = optionalProvider || roProvider;
@@ -118,7 +133,7 @@ export default function Mint() {
         setTotalMinted("—");
       }
 
-      // price (try multiple names just in case ABI differs)
+      // price (ABI-safe fallback)
       let p = null;
       try {
         p = await cube.priceInFlrWei();
@@ -142,7 +157,7 @@ export default function Mint() {
         setPriceFlr("—");
       }
 
-      // update chainId if wallet exists
+      // Sync chainId if wallet exists
       if (window.ethereum) {
         const bp =
           optionalProvider || new ethers.BrowserProvider(window.ethereum);
@@ -155,6 +170,9 @@ export default function Mint() {
     }
   }
 
+  // -----------------------------
+  // Mint
+  // -----------------------------
   async function mintNow() {
     if (!window.ethereum) {
       setStatus("MetaMask not found");
@@ -204,7 +222,9 @@ export default function Mint() {
     }
   }
 
-  // initial read + wallet sync
+  // -----------------------------
+  // Init
+  // -----------------------------
   useEffect(() => {
     refreshRead();
 
@@ -223,6 +243,9 @@ export default function Mint() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // -----------------------------
+  // UI
+  // -----------------------------
   return (
     <div style={styles.page}>
       <Nav />
@@ -258,7 +281,7 @@ export default function Mint() {
           </div>
         </div>
 
-        {/* TILES (only 3) */}
+        {/* TILES */}
         <div style={styles.grid3}>
           <Tile label="Total Minted" value={totalMinted} />
           <Tile label="Price (per NFT)" value={priceFlr} />
@@ -312,6 +335,9 @@ export default function Mint() {
   );
 }
 
+/* -----------------------------
+   STYLES (unchanged)
+----------------------------- */
 const styles = {
   page: {
     minHeight: "100vh",
@@ -319,10 +345,9 @@ const styles = {
       "radial-gradient(circle at 30% 10%, #1b2a5a 0%, #05060b 55%, #000 100%)",
     color: "#fff",
     fontFamily:
-      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"',
+      'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
   },
   wrap: { maxWidth: 980, margin: "0 auto", padding: "26px 18px 60px" },
-
   hero: {
     display: "flex",
     justifyContent: "space-between",
@@ -339,9 +364,9 @@ const styles = {
     flexWrap: "wrap",
     justifyContent: "flex-end",
   },
-  kicker: { opacity: 0.8, fontSize: 13, letterSpacing: 0.3 },
-  h1: { fontSize: 44, margin: "6px 0 6px", letterSpacing: 0.3 },
-  sub: { opacity: 0.9, fontSize: 14, lineHeight: 1.45, maxWidth: 560 },
+  kicker: { opacity: 0.8, fontSize: 13 },
+  h1: { fontSize: 44, margin: "6px 0" },
+  sub: { opacity: 0.9, fontSize: 14, maxWidth: 560 },
 
   btn: {
     background: "rgba(255,255,255,0.12)",
@@ -374,7 +399,6 @@ const styles = {
     padding: "10px 14px",
     borderRadius: 10,
     cursor: "pointer",
-    opacity: 0.95,
   },
   connectedPill: {
     background: "rgba(255,255,255,0.10)",
@@ -382,9 +406,7 @@ const styles = {
     padding: "10px 12px",
     borderRadius: 999,
     fontSize: 13,
-    opacity: 0.95,
   },
-
   grid3: {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
@@ -396,11 +418,10 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.12)",
     borderRadius: 14,
     padding: 14,
-    boxShadow: "0 10px 30px rgba(0,0,0,0.25)",
     minHeight: 82,
   },
-  tileLabel: { opacity: 0.8, fontSize: 12, marginBottom: 8, letterSpacing: 0.3 },
-  tileValue: { fontSize: 18, fontWeight: 800, wordBreak: "break-word" },
+  tileLabel: { opacity: 0.8, fontSize: 12, marginBottom: 8 },
+  tileValue: { fontSize: 18, fontWeight: 800 },
 
   mintCard: {
     marginTop: 12,
@@ -417,19 +438,18 @@ const styles = {
     flexWrap: "wrap",
   },
   mintTitle: { fontSize: 18, fontWeight: 900 },
-  mintHint: { marginTop: 6, fontSize: 13, opacity: 0.85, maxWidth: 520 },
+  mintHint: { marginTop: 6, fontSize: 13, opacity: 0.85 },
 
   controls: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" },
   input: {
     width: 90,
-    padding: "10px 10px",
+    padding: "10px",
     borderRadius: 10,
     border: "1px solid rgba(255,255,255,0.18)",
     background: "rgba(0,0,0,0.25)",
     color: "#fff",
-    outline: "none",
   },
 
-  status: { marginTop: 12, fontSize: 14, opacity: 0.92 },
+  status: { marginTop: 12, fontSize: 14 },
   footerNote: { marginTop: 14, fontSize: 13, opacity: 0.8 },
 };

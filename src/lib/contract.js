@@ -22,5 +22,9 @@ export const EON_LOGO_URI =
 
 // Used for read-only data even before wallet connect
 export const RPCS = {
-  [MAINNET_CHAIN_ID]: "https://flare-api.flare.network/ext/C/rpc",
+  [MAINNET_CHAIN_ID]: [
+    "https://flare-api.flare.network/ext/C/rpc",
+    "https://rpc.ankr.com/flare",
+    "https://flare.rpc.thirdweb.com",
+  ],
 };
