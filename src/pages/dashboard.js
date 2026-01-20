@@ -16,6 +16,12 @@ import {
  */
 const EON_ADDRESS = "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
 
+/**
+ * ✅ Controller address (locked fallback)
+ */
+const CONTROLLER_ADDRESS_LOCKED =
+  "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
+
 // Minimal ABIs (dashboard only)
 const CONTROLLER_ABI = [
   "function energonHeight() view returns (uint256)",
@@ -26,8 +32,37 @@ const CONTROLLER_ABI = [
 const ERC20_ABI = [
   "function balanceOf(address) view returns (uint256)",
   "function decimals() view returns (uint8)",
-  "function symbol() view returns (string)",
 ];
+
+// -------------------------------
+// ✅ Plasma Accumulation (GLOBAL in this browser via localStorage)
+// -------------------------------
+const PLASMA_MAX = 100; // <-- adjust any time (10, 100, 250, etc.)
+const PLASMA_KEY = "energon_plasma_accumulation_v1";
+const PLASMA_TS_KEY = "energon_plasma_last_ts_v1";
+const PLASMA_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+function clampInt(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.floor(x));
+}
+
+function readLS(key, fallback) {
+  try {
+    const v = localStorage.getItem(key);
+    if (v == null) return fallback;
+    return v;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLS(key, value) {
+  try {
+    localStorage.setItem(key, String(value));
+  } catch {}
+}
 
 export default function Dashboard() {
   const [account, setAccount] = useState("");
@@ -39,8 +74,6 @@ export default function Dashboard() {
   const [totalMinted, setTotalMinted] = useState("-");
   const [cubeBal, setCubeBal] = useState("-");
   const [eligibleText, setEligibleText] = useState("-");
-  const [tokenUri, setTokenUri] = useState("-");
-
   const [eonBal, setEonBal] = useState("-");
 
   // Controller-driven stats
@@ -48,6 +81,9 @@ export default function Dashboard() {
   const [energonHeight, setEnergonHeight] = useState("-");
   const [secondsUntilNext, setSecondsUntilNext] = useState("-");
   const [tickAllowed, setTickAllowed] = useState(false);
+
+  // ✅ Plasma Accumulation UI state
+  const [plasma, setPlasma] = useState(0);
 
   // Tick UX
   const [autoTickOn, setAutoTickOn] = useState(false); // default OFF
@@ -65,21 +101,45 @@ export default function Dashboard() {
   const lastTickHeightRef = useRef(null);
 
   /**
-   * ✅ FIX: keep the latest connected wallet for periodic refresh
-   * (prevents cubeBal/eligibility from resetting to "-" due to stale closure)
+   * ✅ Keep the latest connected wallet for periodic refresh
    */
   const accountRef = useRef("");
   useEffect(() => {
     accountRef.current = account || "";
   }, [account]);
 
-  const roProvider = useMemo(() => {
-    return new ethers.JsonRpcProvider(RPCS[MAINNET_CHAIN_ID]);
+  // -----------------------------------------
+  // ✅ RPC failover (read-only)
+  // -----------------------------------------
+  const rpcList = useMemo(() => {
+    const v = RPCS?.[MAINNET_CHAIN_ID];
+    if (Array.isArray(v)) return v.filter(Boolean);
+    if (typeof v === "string" && v) return [v];
+    return [];
   }, []);
+
+  const roRpcIndexRef = useRef(0);
+  const roProviderRef = useRef(null);
+
+  function makeRoProvider(index) {
+    const url = rpcList[index % rpcList.length];
+    return new ethers.JsonRpcProvider(url);
+  }
+
+  function getRoProvider() {
+    if (!rpcList.length) return null;
+
+    // Lazily create provider (sticky)
+    if (!roProviderRef.current) {
+      roProviderRef.current = makeRoProvider(roRpcIndexRef.current);
+    }
+    return roProviderRef.current;
+  }
+
+  const chainOk = Number(chainId) === MAINNET_CHAIN_ID;
 
   const shortAddr = (a) =>
     a ? `${a.slice(0, 6)}…${a.slice(a.length - 4)}` : "-";
-  const chainOk = Number(chainId) === MAINNET_CHAIN_ID;
 
   function tile(label, value, extra = null) {
     return (
@@ -94,7 +154,6 @@ export default function Dashboard() {
   // -----------------------------------------
   // Helpers (tick guardrails)
   // -----------------------------------------
-
   function setCooldown(seconds) {
     setCooldownLeft(Math.max(0, Number(seconds || 0)));
   }
@@ -151,11 +210,100 @@ export default function Dashboard() {
   }
 
   // -----------------------------------------
+  // ✅ Plasma Accumulation (localStorage persisted)
+  // -----------------------------------------
+  function loadPlasmaFromStorage() {
+    const raw = readLS(PLASMA_KEY, "0");
+    const n = clampInt(raw);
+    return PLASMA_MAX > 0 ? n % PLASMA_MAX : 0;
+  }
+
+  function savePlasmaToStorage(n) {
+    writeLS(PLASMA_KEY, String(n));
+  }
+
+  function loadLastPlasmaTs() {
+    const raw = readLS(PLASMA_TS_KEY, "0");
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return n;
+  }
+
+  function saveLastPlasmaTs(ts) {
+    writeLS(PLASMA_TS_KEY, String(ts));
+  }
+
+  function plasmaRelease() {
+    // message only (no promises, no rewards)
+    setStatus("Energon Plasma Release successful ✅");
+  }
+
+  function addPlasma(amount) {
+    const add = clampInt(amount);
+    if (add <= 0 || PLASMA_MAX <= 0) return;
+
+    setPlasma((prev) => {
+      const start = clampInt(prev);
+      const summed = start + add;
+
+      if (summed >= PLASMA_MAX) {
+        const wrapped = summed % PLASMA_MAX;
+        savePlasmaToStorage(wrapped);
+        plasmaRelease();
+        return wrapped;
+      }
+
+      savePlasmaToStorage(summed);
+      return summed;
+    });
+  }
+
+  // Auto plasma based on elapsed 10-min windows & current totalMinted
+  function applyAutoPlasma(totalMintedNumber) {
+    const minted = clampInt(totalMintedNumber);
+    if (minted <= 0) return;
+
+    const now = Date.now();
+    const lastRaw = loadLastPlasmaTs();
+    const last = lastRaw > 0 ? lastRaw : now; // seed on first run
+
+    const elapsed = now - last;
+    if (elapsed < PLASMA_INTERVAL_MS) {
+      // ensure we at least have a ts stored
+      if (!lastRaw) saveLastPlasmaTs(now);
+      return;
+    }
+
+    const steps = Math.floor(elapsed / PLASMA_INTERVAL_MS);
+    if (steps <= 0) return;
+
+    // each 10-min window adds "minted" plasma
+    const add = steps * minted;
+    addPlasma(add);
+
+    // advance timestamp by whole steps (prevents double counting)
+    const advanced = last + steps * PLASMA_INTERVAL_MS;
+    saveLastPlasmaTs(advanced);
+  }
+
+  // Initialize plasma on mount
+  useEffect(() => {
+    setPlasma(loadPlasmaFromStorage());
+
+    // initialize last timestamp if missing
+    const last = loadLastPlasmaTs();
+    if (!last) saveLastPlasmaTs(Date.now());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // -----------------------------------------
   // Network + wallet
   // -----------------------------------------
-
   async function switchToMainnet() {
     if (!window.ethereum) return setStatus("MetaMask not found");
+
+    // IMPORTANT: wallet_addEthereumChain requires a string url, not array
+    const rpcUrlForWallet = rpcList[0] || RPCS?.[MAINNET_CHAIN_ID];
 
     try {
       await window.ethereum.request({
@@ -174,7 +322,7 @@ export default function Dashboard() {
                 chainId: MAINNET_HEX,
                 chainName: NETWORK_NAME,
                 nativeCurrency: { name: "Flare", symbol: "FLR", decimals: 18 },
-                rpcUrls: [RPCS[MAINNET_CHAIN_ID]],
+                rpcUrls: [rpcUrlForWallet],
               },
             ],
           });
@@ -205,9 +353,7 @@ export default function Dashboard() {
       const accounts = await browserProvider.send("eth_requestAccounts", []);
       const addr = accounts?.[0] || "";
 
-      // ✅ set ref immediately
       accountRef.current = addr;
-
       setAccount(addr);
       setStatus("Connected ✅");
       await refreshRead(browserProvider, addr);
@@ -217,50 +363,46 @@ export default function Dashboard() {
   }
 
   // -----------------------------------------
-  // Reads (no cron dependency)
+  // Reads (1s refresh)
   // -----------------------------------------
-
   async function refreshRead(optionalProvider = null, optionalAccount = null) {
     try {
-      const providerToUse = optionalProvider || roProvider;
+      const providerToUse = optionalProvider || getRoProvider();
+      if (!providerToUse) return;
+
       const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, providerToUse);
 
-      // totalMinted
+      // totalMinted (and drive auto plasma off it)
       try {
         const tm = await cube.totalMinted();
-        setTotalMinted(tm.toString());
+        const tmStr = tm.toString();
+        setTotalMinted(tmStr);
+
+        // ✅ auto plasma derived from minted count
+        applyAutoPlasma(Number(tmStr));
       } catch {
         setTotalMinted("-");
       }
 
-      // controller address
       let ctrl = null;
       try {
         ctrl = await cube.controller();
         setControllerAddr(ctrl);
       } catch {
-        ctrl = null;
-        setControllerAddr("-");
+        ctrl = CONTROLLER_ADDRESS_LOCKED;
+        setControllerAddr(ctrl);
       }
 
-      // Controller reads: height + timer
       if (ctrl && ctrl !== ethers.ZeroAddress) {
-        const controller = new ethers.Contract(
-          ctrl,
-          CONTROLLER_ABI,
-          providerToUse
-        );
+        const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, providerToUse);
 
-        // height
         try {
           const h = await controller.energonHeight();
-          const hs = h.toString();
-          setEnergonHeight(hs);
+          setEnergonHeight(h.toString());
         } catch {
           setEnergonHeight("-");
         }
 
-        // seconds until next
         try {
           const s = await controller.secondsUntilNextEnergonBlock();
           const sec = Number(s.toString());
@@ -276,7 +418,6 @@ export default function Dashboard() {
         setTickAllowed(false);
       }
 
-      // Wallet-specific
       const acct = optionalAccount || accountRef.current || account;
 
       if (acct) {
@@ -286,44 +427,21 @@ export default function Dashboard() {
           setCubeBal(String(n));
           if (n === 1) setEligibleText("Eligible ✅ (Exactly 1 Cube)");
           else setEligibleText(`Not eligible ❌ (${n} Cubes)`);
-        } catch {
-          // ✅ don’t clear on transient RPC errors; keep last-known values
-          // (comment these out to keep stable display)
-          // setCubeBal("-");
-          // setEligibleText("-");
-        }
+        } catch {}
 
-        try {
-          const uri = await cube.tokenURI(1);
-          setTokenUri(uri);
-        } catch {
-          setTokenUri("-");
-        }
-
-        // EON balance
         try {
           const eon = new ethers.Contract(EON_ADDRESS, ERC20_ABI, providerToUse);
-          let decimals = 18;
-          try {
-            decimals = Number(await eon.decimals());
-          } catch {}
           const raw = await eon.balanceOf(acct);
-          setEonBal(`${ethers.formatUnits(raw, decimals)} EON`);
-        } catch {
-          // ✅ don’t clear on transient RPC errors
-          // setEonBal("-");
-        }
+          setEonBal(`${ethers.formatUnits(raw, 18)} EON`);
+        } catch {}
       } else {
-        // no wallet connected
         setCubeBal("-");
         setEligibleText("-");
         setEonBal("-");
       }
 
-      // Update chainId if wallet exists
       if (window.ethereum) {
-        const bp =
-          optionalProvider || new ethers.BrowserProvider(window.ethereum);
+        const bp = optionalProvider || new ethers.BrowserProvider(window.ethereum);
         const n = await bp.getNetwork();
         setChainId(Number(n.chainId));
       }
@@ -333,9 +451,8 @@ export default function Dashboard() {
   }
 
   // -----------------------------------------
-  // Manual tick (with guardrails + FINAL GUARDRAIL)
+  // Manual tick
   // -----------------------------------------
-
   async function manualTick() {
     if (!window.ethereum) return setStatus("MetaMask not found");
     if (!accountRef.current) return setStatus("Connect wallet first");
@@ -361,7 +478,6 @@ export default function Dashboard() {
 
       lockTickForAllTabs(45);
       setCooldown(20);
-
       markTickHeight(energonHeight);
 
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
@@ -379,6 +495,9 @@ export default function Dashboard() {
       clearBackoff();
       setStatus("Tick confirmed ✅");
 
+      // ✅ Count confirmed manual ticks into Plasma (+1)
+      addPlasma(1);
+
       await refreshRead(browserProvider, accountRef.current);
     } catch (e) {
       const msg = e?.shortMessage || e?.message || "Tick failed";
@@ -390,18 +509,18 @@ export default function Dashboard() {
   }
 
   // -----------------------------------------
-  // Auto-tick loop (safe + FINAL GUARDRAIL)
+  // Auto-tick loop
   // -----------------------------------------
   useEffect(() => {
     let stopped = false;
 
     async function loop() {
       if (stopped) return;
-
       const acct = accountRef.current;
 
       if (!autoTickOn || !window.ethereum || !acct || !chainOk) return;
-      if (isTicking || cooldownLeft > 0 || isTickLocked() || backoffRef.current > 0) return;
+      if (isTicking || cooldownLeft > 0 || isTickLocked() || backoffRef.current > 0)
+        return;
       if (!tickAllowed) return;
       if (alreadyTickedThisHeight(energonHeight)) return;
 
@@ -464,13 +583,13 @@ export default function Dashboard() {
     return () => clearInterval(t);
   }, [cooldownLeft]);
 
-  // ✅ Periodic refresh (FIXED: always uses latest account)
+  // ✅ Periodic refresh: every 1 second (for height/timer + plasma auto updates)
   useEffect(() => {
     refreshRead(null, accountRef.current);
 
     const t = setInterval(() => {
       refreshRead(null, accountRef.current);
-    }, 8000);
+    }, 1000);
 
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -506,7 +625,9 @@ export default function Dashboard() {
           </span>
         );
       }
-      return <span style={{ ...styles.badge, ...styles.badgeOk }}>TICK ALLOWED</span>;
+      return (
+        <span style={{ ...styles.badge, ...styles.badgeOk }}>TICK ALLOWED</span>
+      );
     }
     return (
       <span style={{ ...styles.badge, ...styles.badgeWait }}>
@@ -528,7 +649,9 @@ export default function Dashboard() {
               Connect Wallet
             </button>
           ) : (
-            <div style={styles.connectedPill}>Connected: {shortAddr(account)}</div>
+            <div style={styles.connectedPill}>
+              Connected: {shortAddr(account)}
+            </div>
           )}
 
           {!chainOk ? (
@@ -537,7 +660,10 @@ export default function Dashboard() {
             </button>
           ) : null}
 
-          <button style={styles.btn} onClick={() => refreshRead(null, accountRef.current)}>
+          <button
+            style={styles.btn}
+            onClick={() => refreshRead(null, accountRef.current)}
+          >
             Refresh
           </button>
 
@@ -548,9 +674,9 @@ export default function Dashboard() {
             }}
             onClick={() => setAutoTickOn((v) => !v)}
             disabled={!account || !chainOk}
-            title="Auto-tick only attempts when Next Block reaches 0 and guardrails allow."
+            title="Attempts only when window opens; guardrails prevent spam."
           >
-            Auto-tick: {autoTickOn ? "ON" : "OFF"}
+            Observe + Attempt: {autoTickOn ? "ON" : "OFF"}
           </button>
 
           <button
@@ -588,7 +714,6 @@ export default function Dashboard() {
         </div>
 
         <div style={styles.subLine}>
-          {tickBadge()}{" "}
           <span style={{ opacity: 0.85 }}>
             {backoffMs > 0 ? `Backoff: ${Math.ceil(backoffMs / 1000)}s` : ""}
             {lastTickTx ? `  • Last tick tx: ${shortAddr(lastTickTx)}` : ""}
@@ -597,7 +722,10 @@ export default function Dashboard() {
 
         <div style={styles.grid3}>
           {tile("Contract", shortAddr(CONTRACT_ADDRESS))}
-          {tile("Chain ID", chainOk ? `14 (OK ✅)` : `${chainId || "-"} (Wrong ❌)`)}
+          {tile(
+            "Chain ID",
+            chainOk ? `14 (OK ✅)` : `${chainId || "-"} (Wrong ❌)`
+          )}
           {tile("Total Minted", totalMinted)}
 
           {tile("Your Cube Balance", cubeBal)}
@@ -609,6 +737,9 @@ export default function Dashboard() {
             secondsUntilNext,
             <div style={{ marginTop: 8 }}>{tickBadge()}</div>
           )}
+
+          {/* ✅ Plasma Accumulation tile */}
+          {tile("Plasma Accumulation", `${plasma}/${PLASMA_MAX}`)}
 
           <div style={styles.tile}>
             <div style={styles.tileLabel}>Energon Token (EON)</div>
@@ -628,11 +759,6 @@ export default function Dashboard() {
           </div>
 
           {tile("Controller", controllerAddr === "-" ? "-" : shortAddr(controllerAddr))}
-        </div>
-
-        <div style={styles.uriBox}>
-          <div style={styles.uriLabel}>Token #1 URI</div>
-          <div style={styles.uriValue}>{tokenUri}</div>
         </div>
 
         <div style={styles.status}>Status: {status}</div>
@@ -718,16 +844,6 @@ const styles = {
 
   eonRow: { display: "flex", gap: 10, alignItems: "center" },
   eonIcon: { width: 28, height: 28, borderRadius: 8 },
-
-  uriBox: {
-    marginTop: 12,
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: 12,
-    padding: 14,
-  },
-  uriLabel: { opacity: 0.8, fontSize: 12, marginBottom: 8 },
-  uriValue: { fontSize: 14, fontWeight: 700, wordBreak: "break-word" },
 
   status: { marginTop: 12, fontSize: 14, opacity: 0.9 },
 

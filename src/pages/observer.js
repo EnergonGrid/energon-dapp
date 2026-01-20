@@ -1,7 +1,7 @@
 // src/pages/observer.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment } from "@react-three/drei";
+import { Environment, Sparkles } from "@react-three/drei";
 import * as THREE from "three";
 
 import {
@@ -13,7 +13,6 @@ import {
   useDisconnect,
   useReadContract,
   useWatchBlockNumber,
-  useWatchContractEvent,
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -21,6 +20,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 // --- YOUR CONTRACTS (Flare) ---
 const EON_ADDRESS = "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
 const CUBE_ADDRESS = "0x30e1076bDf2B123B54486C2721125388af2d2061";
+
+// ✅ Controller address (locked fallback) — same as dashboard
+const CONTROLLER_ADDRESS_LOCKED = "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
+
+// ✅ Global spark trigger: energonHeight milestones (everyone sees it)
+const SPARK_MILESTONE = 100; // change anytime (25, 50, 100, etc.)
 
 // --- LAYOUT SETTINGS ---
 const NARROW_BREAKPOINT = 1100; // px
@@ -40,7 +45,7 @@ const SHEET_COLLAPSED_H = 52; // narrow collapsed bar height
 const SHEET_INSET = 12;
 const SHEET_H = 320;
 
-// Minimal ABIs (read-only + events)
+// Minimal ABIs (read-only + events removed for sparks)
 const erc20Abi = [
   {
     type: "function",
@@ -56,18 +61,6 @@ const erc20Abi = [
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
   },
-
-  // ✅ ERC20 Transfer event (for sparks)
-  {
-    type: "event",
-    name: "Transfer",
-    inputs: [
-      { indexed: true, name: "from", type: "address" },
-      { indexed: true, name: "to", type: "address" },
-      { indexed: false, name: "value", type: "uint256" },
-    ],
-    anonymous: false,
-  },
 ];
 
 const erc721Abi = [
@@ -78,8 +71,6 @@ const erc721Abi = [
     inputs: [{ name: "owner", type: "address" }],
     outputs: [{ name: "balance", type: "uint256" }],
   },
-
-  // ✅ Ownership verification
   {
     type: "function",
     name: "ownerOf",
@@ -87,7 +78,6 @@ const erc721Abi = [
     inputs: [{ name: "tokenId", type: "uint256" }],
     outputs: [{ name: "owner", type: "address" }],
   },
-
   {
     type: "function",
     name: "tokenURI",
@@ -105,17 +95,27 @@ const erc721Abi = [
     ],
     outputs: [{ name: "", type: "uint256" }],
   },
+];
 
-  // ✅ ERC721 Transfer event (for sparks)
+// ✅ Minimal Cube ABI to read controller()
+const cubeMiniAbi = [
   {
-    type: "event",
-    name: "Transfer",
-    inputs: [
-      { indexed: true, name: "from", type: "address" },
-      { indexed: true, name: "to", type: "address" },
-      { indexed: true, name: "tokenId", type: "uint256" },
-    ],
-    anonymous: false,
+    type: "function",
+    name: "controller",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "address" }],
+  },
+];
+
+// ✅ Minimal Controller ABI to read energonHeight()
+const controllerMiniAbi = [
+  {
+    type: "function",
+    name: "energonHeight",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
   },
 ];
 
@@ -139,7 +139,6 @@ const wagmiConfig = createConfig({
 
 const queryClient = new QueryClient();
 
-// ✅ client-only gate to prevent hydration mismatch
 function useMounted() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -177,7 +176,6 @@ function sameAddr(a, b) {
 function ipfsToHttps(uri) {
   if (!uri) return null;
 
-  // Prefer ipfs:// -> https gateway
   if (uri.startsWith("ipfs://")) {
     const cidPath = uri.replace("ipfs://", "");
     return `https://ipfs.io/ipfs/${cidPath}`;
@@ -185,7 +183,6 @@ function ipfsToHttps(uri) {
 
   if (uri.startsWith("http://") || uri.startsWith("https://")) return uri;
 
-  // Raw CID
   if (uri.startsWith("bafy") || uri.startsWith("Qm")) {
     return `https://ipfs.io/ipfs/${uri}`;
   }
@@ -194,7 +191,6 @@ function ipfsToHttps(uri) {
 }
 
 async function fetchJsonWithGatewayFallback(url) {
-  // If it's ipfs.io and fails, try one alternative gateway
   const gateways = [
     url,
     url?.includes("https://ipfs.io/ipfs/")
@@ -229,10 +225,26 @@ function attributesToMap(attrs) {
 // --- UI pill ---
 function StatusPill({ mode }) {
   const map = {
-    DISCONNECTED: { text: "DISCONNECTED", bg: "rgba(255,255,255,0.06)", br: "rgba(255,255,255,0.18)" },
-    SILENT: { text: "SILENT", bg: "rgba(80,120,190,0.10)", br: "rgba(80,120,190,0.28)" },
-    COHERENT: { text: "COHERENT", bg: "rgba(55,183,255,0.12)", br: "rgba(55,183,255,0.35)" },
-    FRACTURED: { text: "FRACTURED", bg: "rgba(255,70,70,0.14)", br: "rgba(255,70,70,0.40)" },
+    DISCONNECTED: {
+      text: "DISCONNECTED",
+      bg: "rgba(255,255,255,0.06)",
+      br: "rgba(255,255,255,0.18)",
+    },
+    SILENT: {
+      text: "SILENT",
+      bg: "rgba(80,120,190,0.10)",
+      br: "rgba(80,120,190,0.28)",
+    },
+    COHERENT: {
+      text: "COHERENT",
+      bg: "rgba(55,183,255,0.12)",
+      br: "rgba(55,183,255,0.35)",
+    },
+    FRACTURED: {
+      text: "FRACTURED",
+      bg: "rgba(255,70,70,0.14)",
+      br: "rgba(255,70,70,0.40)",
+    },
   };
   const s = map[mode] || map.DISCONNECTED;
 
@@ -251,13 +263,19 @@ function StatusPill({ mode }) {
         opacity: 0.95,
       }}
     >
-      <span style={{ width: 6, height: 6, borderRadius: 999, background: "rgba(255,255,255,0.55)" }} />
+      <span
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: 999,
+          background: "rgba(255,255,255,0.55)",
+        }}
+      />
       {s.text}
     </span>
   );
 }
 
-// ✅ Smaller attribute tile for compact grid
 function AttrTileSmall({ k, v }) {
   return (
     <div
@@ -298,7 +316,6 @@ function AttrTileSmall({ k, v }) {
   );
 }
 
-// ✅ Rarity -> color mapping
 const RARITY_COLORS = {
   Common: "#4FA3FF",
   Uncommon: "#00FFC6",
@@ -307,11 +324,16 @@ const RARITY_COLORS = {
   Mythic: "#FF3B3B",
 };
 
-const GENESIS_RAINBOW = ["#4FA3FF", "#00FFC6", "#2DFF57", "#FFE600", "#FF9F1C", "#FF3B3B", "#8B5CFF"];
+const GENESIS_RAINBOW = [
+  "#4FA3FF",
+  "#00FFC6",
+  "#2DFF57",
+  "#FFE600",
+  "#FF9F1C",
+  "#FF3B3B",
+  "#8B5CFF",
+];
 
-/**
- * ⭐ Starfield (gated)
- */
 function Starfield({ enabled, count = 700 }) {
   const pointsRef = useRef(null);
   const velocities = useRef(null);
@@ -323,12 +345,10 @@ function Starfield({ enabled, count = 700 }) {
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
 
-      // Wide field behind the cube
       positions[i3] = (Math.random() - 0.5) * 48;
       positions[i3 + 1] = (Math.random() - 0.5) * 34;
       positions[i3 + 2] = -Math.random() * 70 - 8;
 
-      // Forward drift speed (slightly varied)
       v[i] = 0.010 + Math.random() * 0.020;
     }
 
@@ -347,14 +367,12 @@ function Starfield({ enabled, count = 700 }) {
     const attr = pointsRef.current.geometry.attributes.position;
     const positions = attr.array;
 
-    // Speed scale keeps it consistent across devices
     const speedScale = Math.min(1.8, Math.max(0.6, delta * 60));
 
     for (let i = 0; i < count; i++) {
       const i3 = i * 3;
       positions[i3 + 2] += velocities.current[i] * speedScale;
 
-      // Recycle when it approaches the camera
       if (positions[i3 + 2] > 4.5) {
         positions[i3] = (Math.random() - 0.5) * 48;
         positions[i3 + 1] = (Math.random() - 0.5) * 34;
@@ -383,10 +401,25 @@ function Starfield({ enabled, count = 700 }) {
   );
 }
 
-/**
- * ✨ Transaction Sparks (direction + reward aware, minimal)
- * event = { direction: "in" | "out", isReward: boolean } OR null
- */
+function EnergonField({ enabled }) {
+  if (!enabled) return null;
+
+  return (
+    <>
+      <Starfield enabled={true} />
+      <Sparkles
+        count={25}
+        speed={0.2}
+        opacity={0.75}
+        size={4}
+        scale={[10, 8, 10]}
+        position={[0, 0, -4.6]}
+        depthTest
+      />
+    </>
+  );
+}
+
 function TransactionSparks({ enabled, event, maxSparks = 22 }) {
   const instRef = useRef(null);
   const sparksRef = useRef([]);
@@ -395,14 +428,15 @@ function TransactionSparks({ enabled, event, maxSparks = 22 }) {
   const COLOR_INBOUND = useMemo(() => new THREE.Color("#BFE9FF"), []);
   const COLOR_OUTBOUND = useMemo(() => new THREE.Color("#FFD7A1"), []);
 
-  // Create instanceColor buffer once
   useEffect(() => {
     if (!instRef.current) return;
     const colors = new Float32Array(maxSparks * 3);
-    instRef.current.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+    instRef.current.instanceColor = new THREE.InstancedBufferAttribute(
+      colors,
+      3
+    );
   }, [maxSparks]);
 
-  // Add one spark per event
   useEffect(() => {
     if (!enabled || !event) return;
     if (!instRef.current) return;
@@ -437,7 +471,8 @@ function TransactionSparks({ enabled, event, maxSparks = 22 }) {
     const sparks = sparksRef.current;
 
     if (sparks.length < maxSparks) {
-      for (let i = sparks.length; i < maxSparks; i++) sparks.push({ active: false });
+      for (let i = sparks.length; i < maxSparks; i++)
+        sparks.push({ active: false });
     }
 
     for (let i = 0; i < maxSparks; i++) {
@@ -468,7 +503,11 @@ function TransactionSparks({ enabled, event, maxSparks = 22 }) {
 
       tmpObj.position.set(s.x, s.y, s.z);
       tmpObj.rotation.set(0, 0, s.angle);
-      tmpObj.scale.set(s.len * (0.55 + 0.9 * intensity), s.wid * (0.6 + 0.7 * intensity), 1);
+      tmpObj.scale.set(
+        s.len * (0.55 + 0.9 * intensity),
+        s.wid * (0.6 + 0.7 * intensity),
+        1
+      );
       tmpObj.updateMatrix();
       instRef.current.setMatrixAt(i, tmpObj.matrix);
 
@@ -484,20 +523,31 @@ function TransactionSparks({ enabled, event, maxSparks = 22 }) {
     }
 
     instRef.current.instanceMatrix.needsUpdate = true;
-    if (instRef.current.instanceColor) instRef.current.instanceColor.needsUpdate = true;
+    if (instRef.current.instanceColor)
+      instRef.current.instanceColor.needsUpdate = true;
   });
 
   if (!enabled) return null;
 
   return (
-    <instancedMesh ref={instRef} args={[null, null, maxSparks]} frustumCulled={false}>
+    <instancedMesh
+      ref={instRef}
+      args={[null, null, maxSparks]}
+      frustumCulled={false}
+    >
       <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial transparent opacity={1} depthWrite={false} blending={THREE.AdditiveBlending} vertexColors />
+      <meshBasicMaterial
+        transparent
+        opacity={1}
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        vertexColors
+      />
     </instancedMesh>
   );
 }
 
-// ✅ isBound controls when coherent "energy" activates (prevents premature pulse/color/heartbeat)
+// ✅ upgraded heartbeat shaping: constant alive microPulse + block-triggered double-thump
 function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
   const groupRef = useRef(null);
 
@@ -505,20 +555,25 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
   const sphereMatRef = useRef(null);
   const edgeMatRef = useRef(null);
 
-  const pulse = useRef(0);
+  // ✅ two independent pulses
+  const pulse1 = useRef(0); // primary thump
+  const pulse2 = useRef(0); // secondary thump
+
+  const thumpTimerRef = useRef(null);
 
   // Base palette
   const baseColor = useMemo(() => new THREE.Color("#0B1020"), []);
-  const sphereBaseColor = useMemo(() => new THREE.Color("#0A0A0C"), []); // black sphere base
+  const sphereBaseColor = useMemo(() => new THREE.Color("#0A0A0C"), []);
   const edgeBaseColor = useMemo(() => new THREE.Color("#22324A"), []);
 
-  const rainbowColors = useMemo(() => GENESIS_RAINBOW.map((c) => new THREE.Color(c)), []);
+  const rainbowColors = useMemo(
+    () => GENESIS_RAINBOW.map((c) => new THREE.Color(c)),
+    []
+  );
   const pulseColorRef = useRef(new THREE.Color(RARITY_COLORS.Common));
 
-  // SILENT + FRACTURED => sphere only (no cube, no edges)
   const sphereOnly = mode === "SILENT" || mode === "FRACTURED";
 
-  // Lock base model materials once
   const baseLocked = useRef(false);
   useEffect(() => {
     if (!sphereMatRef.current) return;
@@ -541,7 +596,7 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
       cubeMatRef.current.ior = 1.35;
       cubeMatRef.current.clearcoat = 1;
       cubeMatRef.current.clearcoatRoughness = 0.1;
-      cubeMatRef.current.envMapIntensity = 1.25; // baseline; boosted when bound
+      cubeMatRef.current.envMapIntensity = 1.25;
       cubeMatRef.current.emissive.copy(baseColor);
       cubeMatRef.current.emissiveIntensity = 0.05;
       cubeMatRef.current.depthWrite = false;
@@ -556,22 +611,38 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
     baseLocked.current = true;
   }, [baseColor, sphereBaseColor, edgeBaseColor]);
 
-  // Only set pulse color on beat when COHERENT + bound
+  // ✅ On each block beat: strong thump + delayed smaller thump
   useEffect(() => {
     if (mode !== "COHERENT") return;
     if (!isBound) return;
 
-    pulse.current = 1.0;
-
     if (isGenesis) {
       const i = Math.floor(Math.random() * rainbowColors.length);
       pulseColorRef.current.copy(rainbowColors[i]);
-      return;
+    } else {
+      const tier = String(rarityTier || "Common");
+      const hex = RARITY_COLORS[tier] || RARITY_COLORS.Common;
+      pulseColorRef.current.set(hex);
     }
 
-    const tier = String(rarityTier || "Common");
-    const hex = RARITY_COLORS[tier] || RARITY_COLORS.Common;
-    pulseColorRef.current.set(hex);
+    if (thumpTimerRef.current) {
+      clearTimeout(thumpTimerRef.current);
+      thumpTimerRef.current = null;
+    }
+
+    pulse1.current = 1.0;
+
+    thumpTimerRef.current = setTimeout(() => {
+      pulse2.current = 0.85;
+      thumpTimerRef.current = null;
+    }, 400);
+
+    return () => {
+      if (thumpTimerRef.current) {
+        clearTimeout(thumpTimerRef.current);
+        thumpTimerRef.current = null;
+      }
+    };
   }, [beat, mode, rarityTier, isGenesis, rainbowColors, isBound]);
 
   useFrame((state, delta) => {
@@ -585,15 +656,20 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
     const rotY = isFractured ? 0.55 : 0.12;
     const rotX = isFractured ? 0.22 : 0.04;
 
-    // Fractured motion even sphere-only
     const shakeAmt = isFractured ? 0.055 : 0.0;
     const breatheSpeed = isFractured ? 3.6 : 0.9;
 
-    const decay = isCoherent && isBound ? 2.4 : 1.35;
-    pulse.current = Math.max(0, pulse.current - delta * decay);
+    const decay1 = isCoherent && isBound ? 2.2 : 1.35;
+    const decay2 = isCoherent && isBound ? 3.2 : 1.8;
+    pulse1.current = Math.max(0, pulse1.current - delta * decay1);
+    pulse2.current = Math.max(0, pulse2.current - delta * decay2);
+
+    const microPulse =
+      isCoherent && isBound ? 0.5 + 0.5 * Math.sin(t * 2.2) : 0;
 
     const breathe = 0.35 + 0.2 * Math.sin(t * breatheSpeed);
-    const hit = isBound ? pulse.current : 0;
+
+    const hit = isBound ? pulse1.current + pulse2.current * 0.55 : 0;
 
     if (groupRef.current) {
       groupRef.current.rotation.y += delta * rotY;
@@ -612,30 +688,32 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
         groupRef.current.position.x = 0;
         groupRef.current.position.y = 0;
 
-        const s = 1 + (isCoherent && isBound ? hit * 0.04 : 0);
+        const idle = isCoherent && isBound ? (microPulse - 0.5) * 0.010 : 0;
+        const s = 1 + idle + (isCoherent && isBound ? hit * 0.04 : 0);
         groupRef.current.scale.set(s, s, s);
       }
     }
 
-    // Sphere look
     if (sphereMatRef.current) {
       sphereMatRef.current.color.copy(sphereBaseColor);
 
-      // COHERENT but not bound => quiet black sphere (no pulse color)
       if ((isCoherent && !isBound) || isDisconnected || isSilent) {
         sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
         sphereMatRef.current.emissiveIntensity = 0.12 + breathe * 0.06;
       } else if (isFractured) {
         const flick = 0.5 + 0.5 * Math.sin(t * 14);
         sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
-        sphereMatRef.current.emissiveIntensity = 0.12 + breathe * 0.08 + flick * 0.18;
+        sphereMatRef.current.emissiveIntensity =
+          0.12 + breathe * 0.08 + flick * 0.18;
       } else {
         sphereMatRef.current.emissive.copy(pulseColorRef.current);
-        sphereMatRef.current.emissiveIntensity = 0.25 + breathe * 0.25 + hit * 4.0;
+
+        const microGlow = microPulse * 0.55;
+        sphereMatRef.current.emissiveIntensity =
+          0.25 + breathe * 0.25 + microGlow + hit * 4.0;
       }
     }
 
-    // Cube + edges update (only if present)
     if (!sphereOnly) {
       if (cubeMatRef.current) {
         cubeMatRef.current.color.copy(baseColor);
@@ -643,18 +721,22 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
         cubeMatRef.current.transmission = 0.35;
         cubeMatRef.current.depthWrite = false;
 
-        // ✅ EnvMap boost ONLY when bound
         const envBase = isBound ? 2.45 : 1.25;
         const envBreathe = isBound ? 0.25 * Math.sin(t * 0.9) : 0;
         const envHit = isBound ? hit * 1.25 : 0;
-        cubeMatRef.current.envMapIntensity = envBase + envBreathe + envHit;
+        const envMicro = isBound ? microPulse * 0.22 : 0;
+
+        cubeMatRef.current.envMapIntensity =
+          envBase + envBreathe + envMicro + envHit;
 
         if ((isCoherent && !isBound) || isDisconnected || isSilent) {
           cubeMatRef.current.emissive.copy(baseColor);
           cubeMatRef.current.emissiveIntensity = 0.05 + breathe * 0.04;
         } else {
           cubeMatRef.current.emissive.copy(pulseColorRef.current);
-          cubeMatRef.current.emissiveIntensity = 0.06 + breathe * 0.08 + hit * 1.0;
+          const microEm = microPulse * 0.12;
+          cubeMatRef.current.emissiveIntensity =
+            0.06 + breathe * 0.08 + microEm + hit * 1.0;
         }
 
         cubeMatRef.current.clearcoatRoughness = isBound ? 0.07 : 0.1;
@@ -663,14 +745,15 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
 
       if (edgeMatRef.current) {
         edgeMatRef.current.color.copy(edgeBaseColor);
-        edgeMatRef.current.opacity = 0.28 + breathe * 0.06;
+
+        const edgeMicro = isCoherent && isBound ? microPulse * 0.10 : 0;
+        edgeMatRef.current.opacity = 0.28 + breathe * 0.06 + edgeMicro;
       }
     }
   });
 
   return (
     <group ref={groupRef}>
-      {/* Sphere always exists */}
       <mesh>
         <sphereGeometry args={[0.38, 48, 48]} />
         <meshStandardMaterial
@@ -683,7 +766,6 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
         />
       </mesh>
 
-      {/* Only show cube + edges in COHERENT or DISCONNECTED (NOT SILENT / NOT FRACTURED) */}
       {sphereOnly ? null : (
         <>
           <mesh>
@@ -707,7 +789,12 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
 
           <lineSegments>
             <edgesGeometry args={[new THREE.BoxGeometry(1.205, 1.205, 1.205)]} />
-            <lineBasicMaterial ref={edgeMatRef} color={"#22324A"} transparent opacity={0.28} />
+            <lineBasicMaterial
+              ref={edgeMatRef}
+                            color={"#22324A"}
+              transparent
+              opacity={0.28}
+            />
           </lineSegments>
         </>
       )}
@@ -721,31 +808,20 @@ function ObserverInner() {
   const { disconnect } = useDisconnect();
 
   const [beat, setBeat] = useState(0);
-
-  // ✅ Direction + reward aware spark event (single object)
-  // { direction: "in" | "out", isReward: boolean } | null
   const [sparkEvent, setSparkEvent] = useState(null);
 
-  // ✅ prevent spark spam if lots of transfers come in
   const lastSparkAt = useRef(0);
   const emitSpark = (next) => {
     const now = Date.now();
-    if (now - lastSparkAt.current < 120) return; // ~8 sparks/sec max
+    if (now - lastSparkAt.current < 120) return;
     lastSparkAt.current = now;
     setSparkEvent(next);
   };
 
-  // ✅ Left HUD folding (everything under the top header row). Default open.
   const [hudOpen, setHudOpen] = useState(true);
-
-  // Manual token input + touch flag (prevents autofill overwriting user typing)
   const [manualTokenId, setManualTokenId] = useState("");
   const [manualTouched, setManualTouched] = useState(false);
-
-  // Token panel folding (left HUD). Default open.
   const [tokenPanelOpen, setTokenPanelOpen] = useState(true);
-
-  // Attributes folding (bottom-right / bottom-sheet). Default collapsed.
   const [attrsOpen, setAttrsOpen] = useState(false);
 
   const [tokenUri, setTokenUri] = useState(null);
@@ -786,10 +862,14 @@ function ObserverInner() {
 
   const cubeN = cubeCount.data ? Number(cubeCount.data) : 0;
 
-  // ✅ Mode rules locked
-  const mode = !isConnected ? "DISCONNECTED" : cubeN === 0 ? "SILENT" : cubeN === 1 ? "COHERENT" : "FRACTURED";
+  const mode = !isConnected
+    ? "DISCONNECTED"
+    : cubeN === 0
+    ? "SILENT"
+    : cubeN === 1
+    ? "COHERENT"
+    : "FRACTURED";
 
-  // Auto tokenId (if enumerable) — only meaningful in COHERENT
   const tokenOfOwnerByIndex = useReadContract({
     abi: erc721Abi,
     address: CUBE_ADDRESS,
@@ -801,19 +881,24 @@ function ObserverInner() {
     },
   });
 
-  // Autofill once (unless user typed)
   useEffect(() => {
     if (!isConnected || mode !== "COHERENT") return;
     if (manualTouched) return;
-    if (!tokenOfOwnerByIndex.isSuccess || tokenOfOwnerByIndex.data == null) return;
+    if (!tokenOfOwnerByIndex.isSuccess || tokenOfOwnerByIndex.data == null)
+      return;
 
     const tidStr = safeBigIntToString(tokenOfOwnerByIndex.data);
     if (!tidStr) return;
 
     setManualTokenId((prev) => (prev.trim() ? prev : tidStr));
-  }, [isConnected, mode, manualTouched, tokenOfOwnerByIndex.isSuccess, tokenOfOwnerByIndex.data]);
+  }, [
+    isConnected,
+    mode,
+    manualTouched,
+    tokenOfOwnerByIndex.isSuccess,
+    tokenOfOwnerByIndex.data,
+  ]);
 
-  // Reset when leaving coherent or disconnecting
   useEffect(() => {
     if (!isConnected || mode !== "COHERENT") {
       setManualTokenId("");
@@ -826,17 +911,13 @@ function ObserverInner() {
       setLoadingMeta(false);
       setSparkEvent(null);
       lastSparkAt.current = 0;
-
-      // Keep current behavior: HUD comes back open when leaving COHERENT/disconnecting
       setHudOpen(true);
     }
   }, [isConnected, mode]);
 
-  // Parse manual input
   const manualTokenIdClean = manualTokenId.trim();
   const manualTokenIdValid = /^\d+$/.test(manualTokenIdClean);
 
-  // Candidate tokenId (only in COHERENT)
   const candidateTokenId = useMemo(() => {
     if (mode !== "COHERENT") return null;
 
@@ -847,47 +928,69 @@ function ObserverInner() {
     }
 
     return null;
-  }, [mode, manualTokenIdValid, manualTokenIdClean, tokenOfOwnerByIndex.isSuccess, tokenOfOwnerByIndex.data]);
+  }, [
+    mode,
+    manualTokenIdValid,
+    manualTokenIdClean,
+    tokenOfOwnerByIndex.isSuccess,
+    tokenOfOwnerByIndex.data,
+  ]);
 
-  // ownerOf check for candidateTokenId
   const ownerOfRead = useReadContract({
     abi: erc721Abi,
     address: CUBE_ADDRESS,
     functionName: "ownerOf",
     args: candidateTokenId != null ? [candidateTokenId] : undefined,
-    query: { enabled: !!address && isConnected && mode === "COHERENT" && candidateTokenId != null },
+    query: {
+      enabled:
+        !!address &&
+        isConnected &&
+        mode === "COHERENT" &&
+        candidateTokenId != null,
+    },
   });
 
   const ownership = useMemo(() => {
-    if (!isConnected || mode !== "COHERENT" || !address || candidateTokenId == null)
+    if (
+      !isConnected ||
+      mode !== "COHERENT" ||
+      !address ||
+      candidateTokenId == null
+    )
       return { ok: false, status: "IDLE", owner: null };
 
-    if (ownerOfRead.isLoading) return { ok: false, status: "CHECKING", owner: null };
+    if (ownerOfRead.isLoading)
+      return { ok: false, status: "CHECKING", owner: null };
 
-    // ownerOf reverts for unminted IDs => wagmi marks error
-    if (ownerOfRead.isError) return { ok: false, status: "NOT_MINTED", owner: null };
+    if (ownerOfRead.isError)
+      return { ok: false, status: "NOT_MINTED", owner: null };
 
     if (ownerOfRead.isSuccess) {
       const owner = ownerOfRead.data;
-      if (sameAddr(owner, address)) return { ok: true, status: "OWNED", owner };
+      if (sameAddr(owner, address))
+        return { ok: true, status: "OWNED", owner };
       return { ok: false, status: "NOT_OWNED", owner };
     }
 
     return { ok: false, status: "IDLE", owner: null };
-  }, [isConnected, mode, address, candidateTokenId, ownerOfRead.isLoading, ownerOfRead.isError, ownerOfRead.isSuccess, ownerOfRead.data]);
+  }, [
+    isConnected,
+    mode,
+    address,
+    candidateTokenId,
+    ownerOfRead.isLoading,
+    ownerOfRead.isError,
+    ownerOfRead.isSuccess,
+    ownerOfRead.data,
+  ]);
 
-  // ✅ Derived tokenId only when owned
   const derivedTokenId = ownership.ok ? candidateTokenId : null;
-
-  // ✅ Bound only after ownership confirmed
   const isBound = mode === "COHERENT" && derivedTokenId != null;
 
-  // Collapse token panel automatically once bound (more space)
   useEffect(() => {
     if (isBound) setTokenPanelOpen(false);
   }, [isBound]);
 
-  // Read tokenURI only when owned
   const tokenUriRead = useReadContract({
     abi: erc721Abi,
     address: CUBE_ADDRESS,
@@ -897,10 +1000,10 @@ function ObserverInner() {
   });
 
   useEffect(() => {
-    if (tokenUriRead.isSuccess && tokenUriRead.data) setTokenUri(tokenUriRead.data);
+    if (tokenUriRead.isSuccess && tokenUriRead.data)
+      setTokenUri(tokenUriRead.data);
   }, [tokenUriRead.isSuccess, tokenUriRead.data]);
 
-  // Fetch metadata only when owned + tokenUri exists
   useEffect(() => {
     let alive = true;
 
@@ -948,33 +1051,45 @@ function ObserverInner() {
     return r ? String(r) : "Common";
   }, [attrMap]);
 
-  const tokenIdStr = useMemo(() => (derivedTokenId != null ? safeBigIntToString(derivedTokenId) : ""), [derivedTokenId]);
+  const tokenIdStr = useMemo(
+    () => (derivedTokenId != null ? safeBigIntToString(derivedTokenId) : ""),
+    [derivedTokenId]
+  );
 
   const isGenesis = useMemo(() => {
     if (tokenIdStr === "1") return true;
-    const g = attrMap["Genesis Status"] || attrMap["Genesis Type"] || attrMap["Genesis"];
+    const g =
+      attrMap["Genesis Status"] ||
+      attrMap["Genesis Type"] ||
+      attrMap["Genesis"];
     return !!g;
   }, [tokenIdStr, attrMap]);
 
-  const rarityLabel = useMemo(() => (tokenIdStr === "1" ? "Genesis" : rarityTier), [tokenIdStr, rarityTier]);
+  const rarityLabel = useMemo(
+    () => (tokenIdStr === "1" ? "Genesis" : rarityTier),
+    [tokenIdStr, rarityTier]
+  );
 
   const eonText = formatUnitsSafe(eonBal.data, decimals.data);
 
   const canShowAttributes = isBound && meta && !metaErr;
-
-  // Bottom padding ONLY when attributes panel is open AND narrow (so 3D stays above it)
-  const bottomPad = canShowAttributes && isNarrow && attrsOpen ? SHEET_H + SHEET_INSET * 2 : 0;
+  const bottomPad =
+    canShowAttributes && isNarrow && attrsOpen ? SHEET_H + SHEET_INSET * 2 : 0;
 
   const ownershipMsg = useMemo(() => {
     if (mode !== "COHERENT" || candidateTokenId == null) return null;
-    if (ownerOfRead.isLoading) return { text: "Checking ownership…", color: "rgba(255,255,255,0.70)" };
-    if (ownership.status === "NOT_MINTED") return { text: "Not minted / invalid tokenId.", color: "#ff8a3d" };
-    if (ownership.status === "NOT_OWNED") return { text: "Token is not owned by this wallet.", color: "#ff8a3d" };
-    if (ownership.status === "OWNED") return { text: "Owned ✓", color: "rgba(150,255,190,0.9)" };
+    if (ownerOfRead.isLoading)
+      return { text: "Checking ownership…", color: "rgba(255,255,255,0.70)" };
+    if (ownership.status === "NOT_MINTED")
+      return { text: "Not minted / invalid tokenId.", color: "#ff8a3d" };
+    if (ownership.status === "NOT_OWNED")
+      return { text: "Token is not owned by this wallet.", color: "#ff8a3d" };
+    if (ownership.status === "OWNED")
+      return { text: "Owned ✓", color: "rgba(150,255,190,0.9)" };
     return null;
   }, [mode, candidateTokenId, ownerOfRead.isLoading, ownership.status]);
 
-  // ✅ Heartbeat only runs AFTER bound (prevents premature pulsing)
+  // ✅ Heartbeat only runs AFTER bound (real chain observation)
   useWatchBlockNumber({
     enabled: isConnected && mode === "COHERENT" && isBound,
     onBlockNumber() {
@@ -982,41 +1097,97 @@ function ObserverInner() {
     },
   });
 
-  // ✅ UPDATED: Spark watchers are CONNECTED-only (network-wide visual sparks),
-  // plus spam prevention via emitSpark()
-  useWatchContractEvent({
+  // ============================================================
+  // ✅ GLOBAL SPARKS (UPDATED):
+  // Sparks trigger when controller energonHeight hits milestones.
+  // Burst: 18 sparks, Pulse style, Random direction, Random reward feel
+  // ============================================================
+
+  // Read controller() from Cube (fallback to locked controller)
+  const controllerAddrRead = useReadContract({
+    abi: cubeMiniAbi,
     address: CUBE_ADDRESS,
-    abi: erc721Abi,
-    eventName: "Transfer",
-    enabled: isConnected, // ✅ only when connected
-    onLogs(logs) {
-      const l = (logs || [])[0];
-      if (!l) return;
+    functionName: "controller",
+    query: { enabled: true },
+  });
 
-      // network-wide event — no wallet filtering
-      // direction is "visual direction" now (not wallet-relative)
-      emitSpark({
-        direction: Math.random() > 0.5 ? "in" : "out",
-        isReward: false,
-      });
+  const controllerAddress = useMemo(() => {
+    const addr = controllerAddrRead?.data;
+    if (typeof addr === "string" && addr && addr !== "0x0000000000000000000000000000000000000000") {
+      return addr;
+    }
+    return CONTROLLER_ADDRESS_LOCKED;
+  }, [controllerAddrRead?.data]);
+
+  // Read energonHeight from Controller
+  const heightRead = useReadContract({
+    abi: controllerMiniAbi,
+    address: controllerAddress,
+    functionName: "energonHeight",
+    query: {
+      enabled: !!controllerAddress,
+      refetchInterval: 1200, // poll (keeps it resilient even if websocket drops)
     },
   });
 
-  useWatchContractEvent({
-    address: EON_ADDRESS,
-    abi: erc20Abi,
-    eventName: "Transfer",
-    enabled: isConnected, // ✅ only when connected
-    onLogs(logs) {
-      const l = (logs || [])[0];
-      if (!l) return;
+  const lastMilestoneRef = useRef(null);
+  const burstTimerRef = useRef(null);
 
-      emitSpark({
-        direction: Math.random() > 0.5 ? "in" : "out",
-        isReward: true,
-      });
-    },
-  });
+  useEffect(() => {
+    if (!isConnected) return;
+    if (!isBound) return; // coherent + bound only (matches your rule)
+    if (!heightRead?.data) return;
+
+    // clear any previous burst timer if effect reruns
+    if (burstTimerRef.current) {
+      clearInterval(burstTimerRef.current);
+      burstTimerRef.current = null;
+    }
+
+    function startPulseBurst() {
+      const total = 18;
+      const gapMs = 60;
+      let i = 0;
+
+      burstTimerRef.current = setInterval(() => {
+        emitSpark({
+          direction: Math.random() > 0.5 ? "in" : "out",
+          isReward: Math.random() > 0.5,
+        });
+
+        i += 1;
+        if (i >= total) {
+          clearInterval(burstTimerRef.current);
+          burstTimerRef.current = null;
+        }
+      }, gapMs);
+    }
+
+    const h = Number(heightRead.data);
+    if (!Number.isFinite(h) || h <= 0) return;
+
+    // ✅ milestone bucket (clean when height starts at 1)
+    const milestoneIndex = Math.floor((h - 1) / SPARK_MILESTONE);
+
+    // first load: seed only
+    if (lastMilestoneRef.current == null) {
+      lastMilestoneRef.current = milestoneIndex;
+      return;
+    }
+
+    // burst when we cross into a new bucket
+    if (milestoneIndex > lastMilestoneRef.current) {
+      lastMilestoneRef.current = milestoneIndex;
+      startPulseBurst();
+    }
+
+    return () => {
+      if (burstTimerRef.current) {
+        clearInterval(burstTimerRef.current);
+        burstTimerRef.current = null;
+      }
+    };
+  }, [isConnected, isBound, heightRead?.data]);
 
   const displayedCandidateId = useMemo(() => {
     if (candidateTokenId != null) return safeBigIntToString(candidateTokenId);
@@ -1024,8 +1195,16 @@ function ObserverInner() {
   }, [candidateTokenId]);
 
   return (
-    <div style={{ height: "100vh", background: "#070A12", color: "white", position: "relative", overflow: "hidden" }}>
-      {/* LEFT HUD (collapsible under header row) */}
+    <div
+      style={{
+        height: "100vh",
+        background: "#070A12",
+        color: "white",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      {/* LEFT HUD */}
       <div
         style={{
           position: "absolute",
@@ -1039,8 +1218,14 @@ function ObserverInner() {
           pointerEvents: "auto",
         }}
       >
-        {/* ✅ Header row stays visible (Energon Guardian / Observer Dashboard / Connect) */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
           <button
             onClick={() => setHudOpen((v) => !v)}
             style={{
@@ -1059,10 +1244,28 @@ function ObserverInner() {
             title={hudOpen ? "Collapse HUD" : "Expand HUD"}
           >
             <div>
-              <div style={{ letterSpacing: "0.22em", fontSize: 12, opacity: 0.75 }}>ENERGON GUARDIAN</div>
-              <div style={{ fontSize: 20, marginTop: 6, display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  letterSpacing: "0.22em",
+                  fontSize: 12,
+                  opacity: 0.75,
+                }}
+              >
+                ENERGON GUARDIAN
+              </div>
+              <div
+                style={{
+                  fontSize: 20,
+                  marginTop: 6,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
                 Observer Dashboard <StatusPill mode={mode} />
-                <span style={{ opacity: 0.55, fontSize: 12, marginLeft: 2 }}>{hudOpen ? "▴" : "▾"}</span>
+                <span style={{ opacity: 0.55, fontSize: 12, marginLeft: 2 }}>
+                  {hudOpen ? "▴" : "▾"}
+                </span>
               </div>
             </div>
           </button>
@@ -1070,7 +1273,7 @@ function ObserverInner() {
           {!isConnected ? (
             <button
               onClick={(e) => {
-                e.stopPropagation(); // ✅ prevent header toggle
+                e.stopPropagation();
                 connect({ connector: injected() });
               }}
               style={{
@@ -1088,7 +1291,7 @@ function ObserverInner() {
           ) : (
             <button
               onClick={(e) => {
-                e.stopPropagation(); // ✅ prevent header toggle
+                e.stopPropagation();
                 disconnect();
               }}
               style={{
@@ -1106,7 +1309,6 @@ function ObserverInner() {
           )}
         </div>
 
-        {/* ✅ Everything under the header collapses */}
         {hudOpen ? (
           <div
             style={{
@@ -1117,36 +1319,88 @@ function ObserverInner() {
               padding: 14,
             }}
           >
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 10,
+              }}
+            >
               <div>
-                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>WALLET</div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{isConnected ? shortAddr(address) : "Not connected"}</div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    opacity: 0.65,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  WALLET
+                </div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
+                  {isConnected ? shortAddr(address) : "Not connected"}
+                </div>
               </div>
 
               <div>
-                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>CUBE COUNT</div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{cubeCount.isLoading ? "…" : String(cubeN)}</div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    opacity: 0.65,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  CUBE COUNT
+                </div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
+                  {cubeCount.isLoading ? "…" : String(cubeN)}
+                </div>
               </div>
 
               <div>
-                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>EON BALANCE</div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>{isConnected ? eonText : "—"}</div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    opacity: 0.65,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  EON BALANCE
+                </div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
+                  {isConnected ? eonText : "—"}
+                </div>
               </div>
 
               <div>
-                <div style={{ fontSize: 11, opacity: 0.65, letterSpacing: "0.08em" }}>HEARTBEAT</div>
+                <div
+                  style={{
+                    fontSize: 11,
+                    opacity: 0.65,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  HEARTBEAT
+                </div>
                 <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
                   {mode === "COHERENT" ? (isBound ? beat : "—") : beat}
-                  {isConnected && mode === "COHERENT" && !isBound ? <span style={{ opacity: 0.6 }}> (locked)</span> : null}
-                  {isConnected && mode !== "COHERENT" ? <span style={{ opacity: 0.6 }}> (locked)</span> : null}
+                  {isConnected && mode === "COHERENT" && !isBound ? (
+                    <span style={{ opacity: 0.6 }}> (locked)</span>
+                  ) : null}
+                  {isConnected && mode !== "COHERENT" ? (
+                    <span style={{ opacity: 0.6 }}> (locked)</span>
+                  ) : null}
                 </div>
               </div>
             </div>
 
-            {/* COHERENT-only NFT viewer */}
             {mode === "COHERENT" ? (
-              <div style={{ marginTop: 12, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 12 }}>
-                {/* When bound + collapsed: compact header line (click to expand again) */}
+              <div
+                style={{
+                  marginTop: 12,
+                  borderTop: "1px solid rgba(255,255,255,0.08)",
+                  paddingTop: 12,
+                }}
+              >
                 {!tokenPanelOpen && isBound ? (
                   <button
                     onClick={() => setTokenPanelOpen(true)}
@@ -1162,30 +1416,68 @@ function ObserverInner() {
                     }}
                     title="Click to edit token ID"
                   >
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                      }}
+                    >
                       <div style={{ fontSize: 12, opacity: 0.9 }}>
-                        Token ID: <span style={{ fontWeight: 700, opacity: 0.98 }}>{tokenIdStr}</span>
+                        Token ID:{" "}
+                        <span style={{ fontWeight: 700, opacity: 0.98 }}>
+                          {tokenIdStr}
+                        </span>
                       </div>
                       <div style={{ fontSize: 12, opacity: 0.9 }}>
-                        Rarity: <span style={{ fontWeight: 700, opacity: 0.98 }}>{rarityLabel}</span>
+                        Rarity:{" "}
+                        <span style={{ fontWeight: 700, opacity: 0.98 }}>
+                          {rarityLabel}
+                        </span>
                       </div>
                     </div>
                   </button>
                 ) : (
                   <>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: 10,
+                      }}
+                    >
                       <div style={{ fontSize: 12, opacity: 0.82 }}>
-                        Token ID: <span style={{ opacity: 0.98, fontWeight: 600 }}>{displayedCandidateId}</span>
-                        {isGenesis ? <span style={{ marginLeft: 10, opacity: 0.75 }}>(Genesis)</span> : null}
+                        Token ID:{" "}
+                        <span style={{ opacity: 0.98, fontWeight: 600 }}>
+                          {displayedCandidateId}
+                        </span>
+                        {isGenesis ? (
+                          <span style={{ marginLeft: 10, opacity: 0.75 }}>
+                            (Genesis)
+                          </span>
+                        ) : null}
                       </div>
 
                       <div style={{ fontSize: 12, opacity: 0.82 }}>
-                        Rarity: <span style={{ opacity: 0.98, fontWeight: 600 }}>{isBound ? rarityLabel : "—"}</span>
+                        Rarity:{" "}
+                        <span style={{ opacity: 0.98, fontWeight: 600 }}>
+                          {isBound ? rarityLabel : "—"}
+                        </span>
                       </div>
                     </div>
 
                     <div style={{ marginTop: 10 }}>
-                      <div style={{ fontSize: 12, opacity: 0.72, marginBottom: 8 }}>Token ID (loads only if owned):</div>
+                      <div
+                        style={{
+                          fontSize: 12,
+                          opacity: 0.72,
+                          marginBottom: 8,
+                        }}
+                      >
+                        Token ID (loads only if owned):
+                      </div>
                       <input
                         value={manualTokenId}
                         onChange={(e) => {
@@ -1208,10 +1500,28 @@ function ObserverInner() {
                         }}
                       />
                       {manualTokenId && !manualTokenIdValid ? (
-                        <div style={{ marginTop: 6, fontSize: 11, opacity: 0.75, color: "#ff8a3d" }}>Digits only.</div>
+                        <div
+                          style={{
+                            marginTop: 6,
+                            fontSize: 11,
+                            opacity: 0.75,
+                            color: "#ff8a3d",
+                          }}
+                        >
+                          Digits only.
+                        </div>
                       ) : null}
                       {ownershipMsg ? (
-                        <div style={{ marginTop: 8, fontSize: 12, color: ownershipMsg.color, opacity: 0.95 }}>{ownershipMsg.text}</div>
+                        <div
+                          style={{
+                            marginTop: 8,
+                            fontSize: 12,
+                            color: ownershipMsg.color,
+                            opacity: 0.95,
+                          }}
+                        >
+                          {ownershipMsg.text}
+                        </div>
                       ) : null}
                     </div>
 
@@ -1251,17 +1561,17 @@ function ObserverInner() {
               </div>
             ) : null}
 
-            {/* FRACTURED helper text */}
             {mode === "FRACTURED" ? (
               <div style={{ marginTop: 12, fontSize: 12, opacity: 0.75 }}>
-                Fractured mode: more than 1 cube detected. (Metadata display disabled by design.)
+                Fractured mode: more than 1 cube detected. (Metadata display
+                disabled by design.)
               </div>
             ) : null}
           </div>
         ) : null}
       </div>
 
-      {/* ATTRIBUTES (folds down to bottom-right corner / bottom sheet) */}
+      {/* ATTRIBUTES */}
       {canShowAttributes ? (
         <div
           style={
@@ -1310,7 +1620,6 @@ function ObserverInner() {
                 }
           }
         >
-          {/* Header always visible and toggles open/closed */}
           <button
             onClick={() => setAttrsOpen((v) => !v)}
             style={{
@@ -1338,9 +1647,14 @@ function ObserverInner() {
                 gap: 10,
               }}
             >
-              ATTRIBUTES <span style={{ opacity: 0.65, fontSize: 12 }}>{attrsOpen ? "▴" : "▾"}</span>
+              ATTRIBUTES{" "}
+              <span style={{ opacity: 0.65, fontSize: 12 }}>
+                {attrsOpen ? "▴" : "▾"}
+              </span>
             </div>
-            <div style={{ fontSize: 10, opacity: 0.6 }}>{attrsOpen ? `Showing ${attrsCapped.length}/${MAX_ATTRS}` : null}</div>
+            <div style={{ fontSize: 10, opacity: 0.6 }}>
+              {attrsOpen ? `Showing ${attrsCapped.length}/${MAX_ATTRS}` : null}
+            </div>
           </button>
 
           {attrsOpen ? (
@@ -1356,7 +1670,8 @@ function ObserverInner() {
               }}
             >
               {attrsCapped.map((a, idx) => {
-                const k = a?.trait_type ?? a?.traitType ?? `Attribute ${idx + 1}`;
+                const k =
+                  a?.trait_type ?? a?.traitType ?? `Attribute ${idx + 1}`;
                 const v = a?.value;
                 return <AttrTileSmall key={`${k}-${idx}`} k={k} v={v} />;
               })}
@@ -1365,7 +1680,7 @@ function ObserverInner() {
         </div>
       ) : null}
 
-      {/* ✅ CANVAS ON TOP visually, but cannot steal clicks/typing */}
+      {/* CANVAS */}
       <div
         style={{
           position: "absolute",
@@ -1376,18 +1691,28 @@ function ObserverInner() {
           pointerEvents: "none",
         }}
       >
-        <Canvas style={{ pointerEvents: "none" }} camera={{ position: [0, 0, 3.2], fov: 45 }} gl={{ antialias: true, alpha: true }}>
+        <Canvas
+          style={{ pointerEvents: "none" }}
+          camera={{ position: [0, 0, 3.2], fov: 45 }}
+          gl={{ antialias: true, alpha: true }}
+        >
           <ambientLight intensity={0.25} />
           <directionalLight position={[3, 4, 2]} intensity={1.35} />
           <pointLight position={[-3, -2, 2]} intensity={0.7} />
 
-          {/* 🌌 Starfield ONLY when COHERENT + verified/bound */}
-          <Starfield enabled={mode === "COHERENT" && isBound} />
+          <EnergonField enabled={mode === "COHERENT" && isBound} />
+          <TransactionSparks
+            enabled={mode === "COHERENT" && isBound}
+            event={sparkEvent}
+          />
 
-          {/* ✨ Transaction sparks still only RENDER when COHERENT + bound (even though we listen when connected) */}
-          <TransactionSparks enabled={mode === "COHERENT" && isBound} event={sparkEvent} />
-
-          <EnergonCube beat={beat} mode={mode} rarityTier={rarityTier} isGenesis={isGenesis} isBound={isBound} />
+          <EnergonCube
+            beat={beat}
+            mode={mode}
+            rarityTier={rarityTier}
+            isGenesis={isGenesis}
+            isBound={isBound}
+          />
           <Environment preset="city" />
         </Canvas>
       </div>
