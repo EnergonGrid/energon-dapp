@@ -257,9 +257,10 @@ export default function Mint() {
             <div style={styles.kicker}>Energon Protocol • Flare Mainnet</div>
             <h1 style={styles.h1}>Mint an Energon Cube</h1>
             <div style={styles.sub}>
-              Public mint is live. Rewards are distributed to wallets holding{" "}
-              <b>exactly 1</b> cube.
-            </div>
+  Public mint is live.
+  <br />
+  Eligibility is enforced by code and does not imply outcomes.
+</div>
           </div>
 
           <div style={styles.heroRight}>
@@ -294,9 +295,9 @@ export default function Mint() {
             <div>
               <div style={styles.mintTitle}>Mint</div>
               <div style={styles.mintHint}>
-                Choose quantity (max 25 per tx). If you want rewards, mint only{" "}
-                <b>1</b> per wallet.
-              </div>
+  Choose quantity (max 25 per tx). Protocol interaction is limited to{" "}
+  <b>one (1)</b> Energon Cube per wallet.
+</div>
             </div>
 
             <div style={styles.controls}>
