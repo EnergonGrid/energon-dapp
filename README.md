@@ -1,40 +1,45 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/pages/api-reference/create-next-app).
+# ENERGON DApp
 
-## Getting Started
+This repository contains the user interface for the ENERGON protocol deployed on Flare Mainnet.
 
-First, run the development server:
+The interface surfaces on-chain state. It does not control protocol behavior.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+---
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Surfaces
 
-You can start editing the page by modifying `pages/index.js`. The page auto-updates as you edit the file.
+### Mint
+The Mint surface allows wallets to mint Energon Cubes.
 
-[API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) can be accessed on [http://localhost:3000/api/hello](http://localhost:3000/api/hello). This endpoint can be edited in `pages/api/hello.js`.
+Eligibility for protocol participation is enforced on-chain.
+Minting more than one cube does not increase access and may exclude the wallet from participation.
 
-The `pages/api` directory is mapped to `/api/*`. Files in this directory are treated as [API routes](https://nextjs.org/docs/pages/building-your-application/routing/api-routes) instead of React pages.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/pages/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Dashboard
+The Dashboard is an observer surface.
 
-## Learn More
+It displays protocol state, including:
+- Energon Height
+- Eligibility status
+- Timing constraints
 
-To learn more about Next.js, take a look at the following resources:
+The Dashboard does not imply rewards and does not provide strategy.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn-pages-router) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### Observer
+The Observer is a visual-only surface.
 
-## Deploy on Vercel
+It reflects protocol state without enabling interaction.
+It exists to be watched, not optimized.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/pages/building-your-application/deploying) for more details.
+## Canon
+
+Protocol behavior is governed by:
+- Whitepaper
+- Energon Management Protocol (EMP)
+
+User interfaces do not override protocol rules.
