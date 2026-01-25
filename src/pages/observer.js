@@ -97,7 +97,7 @@ const erc721Abi = [
   },
 ];
 
-// ✅ Minimal Cube ABI to read controller()
+// ✅ Minimal Cube ABI to read controller() + totalMinted()
 const cubeMiniAbi = [
   {
     type: "function",
@@ -105,6 +105,13 @@ const cubeMiniAbi = [
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "address" }],
+  },
+  {
+    type: "function",
+    name: "totalMinted",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
   },
 ];
 
@@ -194,7 +201,10 @@ async function fetchJsonWithGatewayFallback(url) {
   const gateways = [
     url,
     url?.includes("https://ipfs.io/ipfs/")
-      ? url.replace("https://ipfs.io/ipfs/", "https://cloudflare-ipfs.com/ipfs/")
+      ? url.replace(
+          "https://ipfs.io/ipfs/",
+          "https://cloudflare-ipfs.com/ipfs/"
+        )
       : null,
   ].filter(Boolean);
 
@@ -547,6 +557,276 @@ function TransactionSparks({ enabled, event, maxSparks = 22 }) {
   );
 }
 
+// =====================================================
+// GRID (1,000,000 dots) — Observer toggle view
+// Rule: Grid is always dark unless wallet holds EXACTLY 1 cube.
+// Lit count = totalMinted (global)
+// Lit positions = deterministic random (same for everyone)
+// Lit dots pulse + are max-bright (since they are tiny)
+// =====================================================
+
+const GRID_DOTS = 1_000_000; // 1M fixed field
+const GRID_SIDE = 1000; // 1000 x 1000
+const GRID_SPACING = 0.02; // scene scale
+
+const GRID_DARK_SIZE = 0.9; // px
+const GRID_DARK_OPACITY = 0.10;
+
+const GRID_LIT_BASE_SIZE = 2.6; // px (bigger base)
+const GRID_LIT_OPACITY_MAX = 1.0; // max bright
+
+function buildGridPositions() {
+  const positions = new Float32Array(GRID_DOTS * 3);
+  const half = (GRID_SIDE - 1) / 2;
+
+  let p = 0;
+  for (let y = 0; y < GRID_SIDE; y++) {
+    const yy = (y - half) * GRID_SPACING;
+    for (let x = 0; x < GRID_SIDE; x++) {
+      const xx = (x - half) * GRID_SPACING;
+      positions[p++] = xx;
+      positions[p++] = yy;
+      positions[p++] = 0;
+    }
+  }
+  return positions;
+}
+
+function fnv1a32(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function sampleUniqueIndices(count, seed) {
+  const rand = mulberry32(seed);
+  const result = new Uint32Array(count);
+  const used = new Set();
+
+  let i = 0;
+  while (i < count) {
+    const idx = Math.floor(rand() * GRID_DOTS);
+    if (!used.has(idx)) {
+      used.add(idx);
+      result[i++] = idx;
+    }
+  }
+  return result;
+}
+
+/**
+ * GridPoints
+ * - dark dots are static (pointsMaterial)
+ * - lit dots pulse independently (GPU shader: random phase + random rate)
+ */
+function GridPoints({ positions, lit = false }) {
+  const geomRef = useRef(null);
+  const matRef = useRef(null);
+
+  // build geometry ONCE per positions buffer
+  useEffect(() => {
+    if (!geomRef.current) return;
+
+    const geom = geomRef.current;
+
+    // positions
+    geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+
+    // only need pulse attrs for lit layer
+    if (lit) {
+      const count = positions.length / 3;
+
+      // random phase 0..2pi
+      const phase = new Float32Array(count);
+      // random rate (how fast each dot pulses)
+      const rate = new Float32Array(count);
+
+      for (let i = 0; i < count; i++) {
+        phase[i] = Math.random() * Math.PI * 2;
+        rate[i] = 0.55 + Math.random() * 1.35; // 0.55..1.9
+      }
+
+      geom.setAttribute("phase", new THREE.BufferAttribute(phase, 1));
+      geom.setAttribute("rate", new THREE.BufferAttribute(rate, 1));
+    }
+
+    geom.computeBoundingSphere();
+  }, [positions, lit]);
+
+  // update shader time
+  useFrame((state) => {
+    if (!lit || !matRef.current) return;
+    matRef.current.uniforms.uTime.value = state.clock.getElapsedTime();
+  });
+
+  // ---- DARK (static) ----
+  if (!lit) {
+    return (
+      <points frustumCulled={false}>
+        <bufferGeometry ref={geomRef} />
+        <pointsMaterial
+          size={GRID_DARK_SIZE}
+          sizeAttenuation={false}
+          transparent
+          opacity={GRID_DARK_OPACITY}
+          color={"#1B2233"}
+          depthWrite={false}
+          blending={THREE.NormalBlending}
+        />
+      </points>
+    );
+  }
+
+  // ---- LIT (independent pulse) ----
+  const litMaterial = useMemo(() => {
+    const uniforms = {
+      uTime: { value: 0 },
+      uBaseSize: { value: GRID_LIT_BASE_SIZE }, // px
+      uAmpSize: { value: 1.35 },                // how much size grows on pulse
+      uMinAlpha: { value: 0.02 },               // dim floor (near off)
+      uMaxAlpha: { value: 1.0 },                // max brightness
+      uColor: { value: new THREE.Color("#F5FAFF") }, // near-white stars
+    };
+
+    const mat = new THREE.ShaderMaterial({
+      uniforms,
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: `
+        uniform float uTime;
+        uniform float uBaseSize;
+        uniform float uAmpSize;
+
+        attribute float phase;
+        attribute float rate;
+
+        varying float vPulse;
+
+        void main() {
+          // per-dot pulse: 0..1
+          float s = 0.5 + 0.5 * sin(uTime * rate + phase);
+          // shape it so it feels like "dim -> bright -> dim"
+          vPulse = s * s; // softer rise / sharper peak
+
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mvPosition;
+
+          // screen-space size (px)
+          gl_PointSize = uBaseSize + uAmpSize * vPulse;
+        }
+      `,
+      fragmentShader: `
+        uniform float uMinAlpha;
+        uniform float uMaxAlpha;
+        uniform vec3 uColor;
+
+        varying float vPulse;
+
+        void main() {
+          // make points circular
+          vec2 c = gl_PointCoord - vec2(0.5);
+          float r = length(c);
+          if (r > 0.5) discard;
+
+          float a = mix(uMinAlpha, uMaxAlpha, vPulse);
+
+          // soft edge so stars feel smoother
+          float edge = smoothstep(0.5, 0.35, r);
+          a *= edge;
+
+          gl_FragColor = vec4(uColor, a);
+        }
+      `,
+    });
+
+    return mat;
+  }, []);
+
+  return (
+    <points frustumCulled={false}>
+      <bufferGeometry ref={geomRef} />
+      <primitive ref={matRef} object={litMaterial} attach="material" />
+    </points>
+  );
+}
+
+/**
+ * GridScene
+ * - Always renders dark 1M dot field
+ * - If coherent (exactly 1 cube), overlays N lit dots
+ * - IMPORTANT: only computes lit indices when coherent (prevents heavy work)
+ */
+function GridScene({ coherent, totalMinted }) {
+  // Base positions once
+  const basePositionsRef = useRef(null);
+  if (!basePositionsRef.current) {
+    basePositionsRef.current = buildGridPositions();
+  }
+
+  // Deterministic constellation seed (global, stable)
+  const seed = useMemo(() => {
+    return fnv1a32(`${String(CUBE_ADDRESS).toLowerCase()}|GRID_V1`);
+  }, []);
+
+  // ✅ Only compute when coherent (huge perf win)
+  const litIndices = useMemo(() => {
+    if (!coherent) return [];
+
+    // 🔒 SAFETY CLAMP
+    const minted = Math.max(0, Math.floor(Number(totalMinted) || 0));
+    if (minted <= 0) return [];
+
+    // never allow full saturation (protects sampler)
+    const count = Math.min(GRID_DOTS - 1, minted);
+
+    return sampleUniqueIndices(count, seed);
+  }, [coherent, totalMinted, seed]);
+
+  const litPositions = useMemo(() => {
+    if (!coherent || litIndices.length === 0) return null;
+
+    const base = basePositionsRef.current;
+    const n = litIndices.length;
+    const out = new Float32Array(n * 3);
+
+    for (let i = 0; i < n; i++) {
+      const src = litIndices[i] * 3;
+      const dst = i * 3;
+      out[dst] = base[src];
+      out[dst + 1] = base[src + 1];
+      out[dst + 2] = base[src + 2];
+    }
+    return out;
+  }, [coherent, litIndices]);
+
+  return (
+    <>
+      {/* Dark field (always visible) */}
+      <GridPoints positions={basePositionsRef.current} />
+
+      {/* Lit overlay (only if coherent) */}
+      {coherent && litPositions ? (
+        <GridPoints positions={litPositions} lit globalPulse />
+      ) : null}
+    </>
+  );
+}
+
 // ✅ upgraded heartbeat shaping: constant alive microPulse + block-triggered double-thump
 function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
   const groupRef = useRef(null);
@@ -791,7 +1071,7 @@ function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
             <edgesGeometry args={[new THREE.BoxGeometry(1.205, 1.205, 1.205)]} />
             <lineBasicMaterial
               ref={edgeMatRef}
-                            color={"#22324A"}
+              color={"#22324A"}
               transparent
               opacity={0.28}
             />
@@ -806,6 +1086,9 @@ function ObserverInner() {
   const { address, isConnected } = useAccount();
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
+
+  // ✅ View toggle inside Observer: "CUBE" | "GRID"
+  const [viewMode, setViewMode] = useState("CUBE");
 
   const [beat, setBeat] = useState(0);
   const [sparkEvent, setSparkEvent] = useState(null);
@@ -844,6 +1127,31 @@ function ObserverInner() {
     args: address ? [address] : undefined,
     query: { enabled: !!address },
   });
+
+  // ✅ totalMinted (global) — drives lit count on Grid
+  const totalMintedRead = useReadContract({
+    abi: cubeMiniAbi,
+    address: CUBE_ADDRESS,
+    functionName: "totalMinted",
+    query: { enabled: true, refetchInterval: 5000 },
+  });
+
+  const totalMintedN = useMemo(() => {
+  try {
+    const v = totalMintedRead.data;
+
+    if (typeof v === "bigint") {
+      const max = BigInt(Number.MAX_SAFE_INTEGER);
+      return v > max ? Number.MAX_SAFE_INTEGER : Number(v);
+    }
+
+    if (typeof v === "number") return v;
+
+    return 0;
+  } catch {
+    return 0;
+  }
+}, [totalMintedRead.data]);
 
   const decimals = useReadContract({
     abi: erc20Abi,
@@ -1113,7 +1421,11 @@ function ObserverInner() {
 
   const controllerAddress = useMemo(() => {
     const addr = controllerAddrRead?.data;
-    if (typeof addr === "string" && addr && addr !== "0x0000000000000000000000000000000000000000") {
+    if (
+      typeof addr === "string" &&
+      addr &&
+      addr !== "0x0000000000000000000000000000000000000000"
+    ) {
       return addr;
     }
     return CONTROLLER_ADDRESS_LOCKED;
@@ -1260,9 +1572,62 @@ function ObserverInner() {
                   display: "flex",
                   alignItems: "center",
                   gap: 10,
+                  flexWrap: "wrap",
                 }}
               >
                 Observer Dashboard <StatusPill mode={mode} />
+
+                {/* ✅ View toggle: CUBE / GRID */}
+                <span style={{ display: "inline-flex", gap: 8, marginLeft: 2 }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewMode("CUBE");
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      background:
+                        viewMode === "CUBE"
+                          ? "rgba(255,255,255,0.12)"
+                          : "rgba(255,255,255,0.05)",
+                      color: "white",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      letterSpacing: "0.12em",
+                      opacity: 0.95,
+                    }}
+                    title="Cube view"
+                  >
+                    CUBE
+                  </button>
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setViewMode("GRID");
+                    }}
+                    style={{
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      border: "1px solid rgba(255,255,255,0.16)",
+                      background:
+                        viewMode === "GRID"
+                          ? "rgba(255,255,255,0.12)"
+                          : "rgba(255,255,255,0.05)",
+                      color: "white",
+                      cursor: "pointer",
+                      fontSize: 11,
+                      letterSpacing: "0.12em",
+                      opacity: 0.95,
+                    }}
+                    title="Grid view"
+                  >
+                    GRID
+                  </button>
+                </span>
+
                 <span style={{ opacity: 0.55, fontSize: 12, marginLeft: 2 }}>
                   {hudOpen ? "▴" : "▾"}
                 </span>
@@ -1389,6 +1754,22 @@ function ObserverInner() {
                   {isConnected && mode !== "COHERENT" ? (
                     <span style={{ opacity: 0.6 }}> (locked)</span>
                   ) : null}
+                </div>
+              </div>
+
+              {/* Optional: totalMinted shown only as observation */}
+              <div style={{ gridColumn: "1 / span 2" }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    opacity: 0.65,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  TOTAL MINTED (GLOBAL)
+                </div>
+                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
+                  {String(totalMintedN)}
                 </div>
               </div>
             </div>
@@ -1693,27 +2074,43 @@ function ObserverInner() {
       >
         <Canvas
           style={{ pointerEvents: "none" }}
-          camera={{ position: [0, 0, 3.2], fov: 45 }}
+          camera={
+            viewMode === "GRID"
+              ? { position: [0, 0, 12], fov: 55 }
+              : { position: [0, 0, 3.2], fov: 45 }
+          }
           gl={{ antialias: true, alpha: true }}
         >
-          <ambientLight intensity={0.25} />
-          <directionalLight position={[3, 4, 2]} intensity={1.35} />
-          <pointLight position={[-3, -2, 2]} intensity={0.7} />
+          {viewMode === "GRID" ? (
+            <>
+              {/* GRID VIEW: always dark; lights only if exactly 1 cube */}
+              <GridScene
+                coherent={isConnected && mode === "COHERENT"}
+                totalMinted={totalMintedN}
+              />
+            </>
+          ) : (
+            <>
+              <ambientLight intensity={0.25} />
+              <directionalLight position={[3, 4, 2]} intensity={1.35} />
+              <pointLight position={[-3, -2, 2]} intensity={0.7} />
 
-          <EnergonField enabled={mode === "COHERENT" && isBound} />
-          <TransactionSparks
-            enabled={mode === "COHERENT" && isBound}
-            event={sparkEvent}
-          />
+              <EnergonField enabled={mode === "COHERENT" && isBound} />
+              <TransactionSparks
+                enabled={mode === "COHERENT" && isBound}
+                event={sparkEvent}
+              />
 
-          <EnergonCube
-            beat={beat}
-            mode={mode}
-            rarityTier={rarityTier}
-            isGenesis={isGenesis}
-            isBound={isBound}
-          />
-          <Environment preset="city" />
+              <EnergonCube
+                beat={beat}
+                mode={mode}
+                rarityTier={rarityTier}
+                isGenesis={isGenesis}
+                isBound={isBound}
+              />
+              <Environment preset="city" />
+            </>
+          )}
         </Canvas>
       </div>
     </div>

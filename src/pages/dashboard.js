@@ -71,7 +71,9 @@ export default function Dashboard() {
     "Ready. (Connect wallet for eligibility + balances)"
   );
 
+  // ✅ KEEP reading total minted (hidden, for plasma logic)
   const [totalMinted, setTotalMinted] = useState("-");
+
   const [cubeBal, setCubeBal] = useState("-");
   const [eligibleText, setEligibleText] = useState("-");
   const [eonBal, setEonBal] = useState("-");
@@ -372,7 +374,7 @@ export default function Dashboard() {
 
       const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, providerToUse);
 
-      // totalMinted (and drive auto plasma off it)
+      // ✅ totalMinted read stays (hidden), used for plasma only
       try {
         const tm = await cube.totalMinted();
         const tmStr = tm.toString();
@@ -394,7 +396,11 @@ export default function Dashboard() {
       }
 
       if (ctrl && ctrl !== ethers.ZeroAddress) {
-        const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, providerToUse);
+        const controller = new ethers.Contract(
+          ctrl,
+          CONTROLLER_ABI,
+          providerToUse
+        );
 
         try {
           const h = await controller.energonHeight();
@@ -441,7 +447,8 @@ export default function Dashboard() {
       }
 
       if (window.ethereum) {
-        const bp = optionalProvider || new ethers.BrowserProvider(window.ethereum);
+        const bp =
+          optionalProvider || new ethers.BrowserProvider(window.ethereum);
         const n = await bp.getNetwork();
         setChainId(Number(n.chainId));
       }
@@ -463,7 +470,9 @@ export default function Dashboard() {
       return setStatus("Tick locked (another tab / recent tick). Try again soon.");
 
     if (!tickAllowed) {
-      return setStatus("Tick not allowed yet. Wait for Next Block to reach 0 sec.");
+      return setStatus(
+        "Tick not allowed yet. Wait for Next Block to reach 0 sec."
+      );
     }
 
     if (alreadyTickedThisHeight(energonHeight)) {
@@ -519,7 +528,12 @@ export default function Dashboard() {
       const acct = accountRef.current;
 
       if (!autoTickOn || !window.ethereum || !acct || !chainOk) return;
-      if (isTicking || cooldownLeft > 0 || isTickLocked() || backoffRef.current > 0)
+      if (
+        isTicking ||
+        cooldownLeft > 0 ||
+        isTickLocked() ||
+        backoffRef.current > 0
+      )
         return;
       if (!tickAllowed) return;
       if (alreadyTickedThisHeight(energonHeight)) return;
@@ -720,13 +734,14 @@ export default function Dashboard() {
           </span>
         </div>
 
+        {/* ✅ Dashboard stays 3×3: Total Minted tile removed */}
         <div style={styles.grid3}>
           {tile("Contract", shortAddr(CONTRACT_ADDRESS))}
           {tile(
             "Chain ID",
             chainOk ? `14 (OK ✅)` : `${chainId || "-"} (Wrong ❌)`
           )}
-          {tile("Total Minted", totalMinted)}
+          {tile("Controller", controllerAddr === "-" ? "-" : shortAddr(controllerAddr))}
 
           {tile("Your Cube Balance", cubeBal)}
           {tile("Eligibility", eligibleText)}
@@ -757,11 +772,12 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-
-          {tile("Controller", controllerAddr === "-" ? "-" : shortAddr(controllerAddr))}
         </div>
 
         <div style={styles.status}>Status: {status}</div>
+
+        {/* Hidden debug (optional): keeps state for plasma logic without UI noise */}
+        {/* <div style={{ opacity: 0.2, fontSize: 10 }}>totalMinted(hidden): {totalMinted}</div> */}
       </div>
     </div>
   );
