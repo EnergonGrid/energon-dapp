@@ -558,6 +558,67 @@ function TransactionSparks({ enabled, event, maxSparks = 22 }) {
 }
 
 // =====================================================
+// SHOCKWAVE RING (billboard-ish) — triggers on block beat
+// =====================================================
+function ShockwaveRing({ enabled, beat }) {
+  const meshRef = useRef(null);
+  const life = useRef(0);
+
+  // reset on beat
+  useEffect(() => {
+    if (!enabled) return;
+    life.current = 0;
+  }, [beat, enabled]);
+
+  useFrame((state, delta) => {
+    if (!enabled || !meshRef.current) return;
+
+    // life 0..1 over ~0.55s
+    life.current = Math.min(1, life.current + delta / 0.55);
+    const p = life.current;
+
+    // expand + fade
+    const s = 0.42 + p * 1.25; // start small -> larger
+    meshRef.current.scale.set(s, s, 1);
+
+    // slight drift forward so it never gets z-fought
+    meshRef.current.position.z = 0.7;
+
+    // opacity curve: quick pop then fade
+    const alpha = Math.max(0, Math.pow(1 - p, 2.7)) * 0.12;
+    if (meshRef.current?.material) {
+      meshRef.current.material.opacity = alpha;
+    }
+
+    // hide when done
+    meshRef.current.visible = alpha > 0.02;
+  });
+
+  if (!enabled) return null;
+
+  return (
+    <mesh ref={meshRef} position={[0, 0, 0.7]} renderOrder={999}>
+      <ringGeometry args={[0.58, 0.60, 128]} />
+      <meshPhysicalMaterial
+  transparent
+  opacity={0}              // we animate this in useFrame
+  color={"#ffffff"}        // neutral (doesn't tint)
+  roughness={0.15}
+  metalness={0.0}
+  transmission={1.0}       // clear glass
+  thickness={0.01}         // 🔑 tiny thickness = no white “chunk”
+  ior={1.01}               // 🔑 almost air = subtle refraction
+  clearcoat={0.4}
+  clearcoatRoughness={0.25}
+  envMapIntensity={0.08}   // 🔑 keep reflections very low
+  depthTest={false}
+  depthWrite={false}
+/>
+    </mesh>
+  );
+}
+
+// =====================================================
 // GRID (1,000,000 dots) — Observer toggle view
 // Rule: Grid is always dark unless wallet holds EXACTLY 1 cube.
 // Lit count = totalMinted (global)
@@ -1438,7 +1499,7 @@ function ObserverInner() {
     functionName: "energonHeight",
     query: {
       enabled: !!controllerAddress,
-      refetchInterval: 1200, // poll (keeps it resilient even if websocket drops)
+      refetchInterval: 5000, // poll (keeps it resilient even if websocket drops)
     },
   });
 
@@ -1757,21 +1818,22 @@ function ObserverInner() {
                 </div>
               </div>
 
-              {/* Optional: totalMinted shown only as observation */}
-              <div style={{ gridColumn: "1 / span 2" }}>
-                <div
-                  style={{
-                    fontSize: 11,
-                    opacity: 0.65,
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  TOTAL MINTED (GLOBAL)
-                </div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
-                  {String(totalMintedN)}
-                </div>
-              </div>
+              {viewMode === "GRID" && (
+  <div style={{ gridColumn: "1 / span 2" }}>
+    <div
+      style={{
+        fontSize: 11,
+        opacity: 0.65,
+        letterSpacing: "0.08em",
+      }}
+    >
+      TOTAL MINTED (GLOBAL)
+    </div>
+    <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
+      {String(totalMintedN)}
+    </div>
+  </div>
+)}
             </div>
 
             {mode === "COHERENT" ? (
@@ -2091,25 +2153,30 @@ function ObserverInner() {
             </>
           ) : (
             <>
-              <ambientLight intensity={0.25} />
-              <directionalLight position={[3, 4, 2]} intensity={1.35} />
-              <pointLight position={[-3, -2, 2]} intensity={0.7} />
+  <ambientLight intensity={0.25} />
+  <directionalLight position={[3, 4, 2]} intensity={1.35} />
+  <pointLight position={[-3, -2, 2]} intensity={0.7} />
 
-              <EnergonField enabled={mode === "COHERENT" && isBound} />
-              <TransactionSparks
-                enabled={mode === "COHERENT" && isBound}
-                event={sparkEvent}
-              />
+  <EnergonField enabled={mode === "COHERENT" && isBound} />
 
-              <EnergonCube
-                beat={beat}
-                mode={mode}
-                rarityTier={rarityTier}
-                isGenesis={isGenesis}
-                isBound={isBound}
-              />
-              <Environment preset="city" />
-            </>
+  <TransactionSparks
+    enabled={mode === "COHERENT" && isBound}
+    event={sparkEvent}
+  />
+
+  {/* 🔥 NEW BLOCK-BEAT EFFECTS */}
+  <ShockwaveRing enabled={mode === "COHERENT" && isBound} beat={beat} />
+  
+  <EnergonCube
+    beat={beat}
+    mode={mode}
+    rarityTier={rarityTier}
+    isGenesis={isGenesis}
+    isBound={isBound}
+  />
+
+  <Environment preset="city" />
+</>
           )}
         </Canvas>
       </div>
