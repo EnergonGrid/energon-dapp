@@ -1,8 +1,6 @@
-// src/pages/observer.js
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { Environment, Sparkles } from "@react-three/drei";
-import * as THREE from "three";
+import { Environment } from "@react-three/drei";
 
 import {
   WagmiProvider,
@@ -17,35 +15,59 @@ import {
 import { injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import EnergonCube from "../components/observer/scene/EnergonCube";
+import ShockwaveRing from "../components/observer/scene/ShockwaveRing";
+import TransactionSparks from "../components/observer/scene/TransactionSparks";
+import EnergonField from "../components/observer/scene/EnergonField";
+import GridScene from "../components/observer/scene/GridScene";
+import HalvingMemoryOrb from "../components/observer/scene/HalvingMemoryOrb";
+import EnergonEnergyFilaments from "../components/observer/scene/EnergonEnergyFilaments";
+import ObserverHud from "../components/observer/panels/ObserverHud";
+import AttributesPanel from "../components/observer/panels/AttributesPanel";
+
 // --- YOUR CONTRACTS (Flare) ---
 const EON_ADDRESS = "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
 const CUBE_ADDRESS = "0x30e1076bDf2B123B54486C2721125388af2d2061";
 
-// ✅ Controller address (locked fallback) — same as dashboard
+// ✅ Controller address (locked fallback)
 const CONTROLLER_ADDRESS_LOCKED = "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
 
-// ✅ Global spark trigger: energonHeight milestones (everyone sees it)
-const SPARK_MILESTONE = 100; // change anytime (25, 50, 100, etc.)
+// ✅ Global spark trigger
+const SPARK_MILESTONE = 100;
+
+// ✅ Protocol memory settings
+const MAX_SUPPLY = 1000000;
+const ENERGON_BLOCK_TIME_SECONDS = 600; // from controller
+const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
+
+// ✅ IMPORTANT: set this to the actual deployed constructor value if it ever changes
+const INITIAL_REWARD_PER_BLOCK_WEI = 25n * 10n ** 18n;
+
+// ✅ Optional UI test override
+const TEST_FORCE_HALVING_STAGE = null;
+
+// ✅ Filament speed while touching archive memory
+const FILAMENT_ACTIVE_PULSE_SPEED = 1.35;
+
+// ✅ Hide protocol clock UI, but keep all logic/data alive
+const SHOW_PROTOCOL_CLOCK = false;
 
 // --- LAYOUT SETTINGS ---
-const NARROW_BREAKPOINT = 1100; // px
+const NARROW_BREAKPOINT = 1100;
 const MAX_ATTRS = 10;
 
-// Attributes panel sizing
 const ATTR_PANEL_W = 420;
 const ATTR_PANEL_INSET = 16;
 const ATTR_PANEL_GAP = 8;
 const ATTR_PANEL_MAX_H = 360;
 
-// Collapsed heights
-const ATTR_COLLAPSED_H = 44; // desktop collapsed bar height
-const SHEET_COLLAPSED_H = 52; // narrow collapsed bar height
+const ATTR_COLLAPSED_H = 44;
+const SHEET_COLLAPSED_H = 52;
 
-// Narrow screen sheet sizing (bottom-docked; no scroll)
 const SHEET_INSET = 12;
 const SHEET_H = 320;
 
-// Minimal ABIs (read-only + events removed for sparks)
+// Minimal ABIs
 const erc20Abi = [
   {
     type: "function",
@@ -97,7 +119,6 @@ const erc721Abi = [
   },
 ];
 
-// ✅ Minimal Cube ABI to read controller() + totalMinted()
 const cubeMiniAbi = [
   {
     type: "function",
@@ -115,11 +136,38 @@ const cubeMiniAbi = [
   },
 ];
 
-// ✅ Minimal Controller ABI to read energonHeight()
 const controllerMiniAbi = [
   {
     type: "function",
     name: "energonHeight",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "launchTime",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "lastHalvingTime",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "halvingInterval",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "currentRewardPerBlock",
     stateMutability: "view",
     inputs: [],
     outputs: [{ name: "", type: "uint256" }],
@@ -161,6 +209,15 @@ function formatUnitsSafe(value, decimals) {
   return frac ? `${whole}.${frac}` : whole;
 }
 
+function formatEonWei(value) {
+  try {
+    const v = typeof value === "bigint" ? value : BigInt(value || 0);
+    return formatUnitsSafe(v, 18);
+  } catch {
+    return "—";
+  }
+}
+
 function shortAddr(a) {
   if (!a) return "—";
   return `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -179,7 +236,6 @@ function sameAddr(a, b) {
   return String(a).toLowerCase() === String(b).toLowerCase();
 }
 
-// --- Metadata helpers ---
 function ipfsToHttps(uri) {
   if (!uri) return null;
 
@@ -232,914 +288,230 @@ function attributesToMap(attrs) {
   return map;
 }
 
-// --- UI pill ---
-function StatusPill({ mode }) {
-  const map = {
-    DISCONNECTED: {
-      text: "DISCONNECTED",
-      bg: "rgba(255,255,255,0.06)",
-      br: "rgba(255,255,255,0.18)",
-    },
-    SILENT: {
-      text: "SILENT",
-      bg: "rgba(80,120,190,0.10)",
-      br: "rgba(80,120,190,0.28)",
-    },
-    COHERENT: {
-      text: "COHERENT",
-      bg: "rgba(55,183,255,0.12)",
-      br: "rgba(55,183,255,0.35)",
-    },
-    FRACTURED: {
-      text: "FRACTURED",
-      bg: "rgba(255,70,70,0.14)",
-      br: "rgba(255,70,70,0.40)",
-    },
-  };
-  const s = map[mode] || map.DISCONNECTED;
-
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 999,
-        border: `1px solid ${s.br}`,
-        background: s.bg,
-        fontSize: 11,
-        letterSpacing: "0.14em",
-        opacity: 0.95,
-      }}
-    >
-      <span
-        style={{
-          width: 6,
-          height: 6,
-          borderRadius: 999,
-          background: "rgba(255,255,255,0.55)",
-        }}
-      />
-      {s.text}
-    </span>
-  );
-}
-
-function AttrTileSmall({ k, v }) {
-  return (
-    <div
-      style={{
-        border: "1px solid rgba(255,255,255,0.10)",
-        background: "rgba(255,255,255,0.04)",
-        borderRadius: 12,
-        padding: "7px 9px",
-        minWidth: 0,
-        overflow: "hidden",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 10,
-          opacity: 0.68,
-          letterSpacing: "0.08em",
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {k}
-      </div>
-      <div
-        style={{
-          marginTop: 5,
-          fontSize: 12,
-          opacity: 0.92,
-          whiteSpace: "nowrap",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-        }}
-      >
-        {String(v ?? "—")}
-      </div>
-    </div>
-  );
-}
-
-const RARITY_COLORS = {
-  Common: "#4FA3FF",
-  Uncommon: "#00FFC6",
-  Rare: "#8B5CFF",
-  Legendary: "#FF9F1C",
-  Mythic: "#FF3B3B",
-};
-
-const GENESIS_RAINBOW = [
-  "#4FA3FF",
-  "#00FFC6",
-  "#2DFF57",
-  "#FFE600",
-  "#FF9F1C",
-  "#FF3B3B",
-  "#8B5CFF",
-];
-
-function Starfield({ enabled, count = 700 }) {
-  const pointsRef = useRef(null);
-  const velocities = useRef(null);
-
-  const { geometry, vels } = useMemo(() => {
-    const positions = new Float32Array(count * 3);
-    const v = new Float32Array(count);
-
-    for (let i = 0; i < count; i++) {
-      const i3 = i * 3;
-
-      positions[i3] = (Math.random() - 0.5) * 48;
-      positions[i3 + 1] = (Math.random() - 0.5) * 34;
-      positions[i3 + 2] = -Math.random() * 70 - 8;
-
-      v[i] = 0.010 + Math.random() * 0.020;
-    }
-
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    return { geometry: geo, vels: v };
-  }, [count]);
-
-  useEffect(() => {
-    velocities.current = vels;
-  }, [vels]);
-
-  useFrame((state, delta) => {
-    if (!enabled || !pointsRef.current || !velocities.current) return;
-
-    const attr = pointsRef.current.geometry.attributes.position;
-    const positions = attr.array;
-
-    const speedScale = Math.min(1.8, Math.max(0.6, delta * 60));
-
-    for (let i = 0; i < count; i++) {
-      const i3 = i * 3;
-      positions[i3 + 2] += velocities.current[i] * speedScale;
-
-      if (positions[i3 + 2] > 4.5) {
-        positions[i3] = (Math.random() - 0.5) * 48;
-        positions[i3 + 1] = (Math.random() - 0.5) * 34;
-        positions[i3 + 2] = -70 - Math.random() * 10;
-        velocities.current[i] = 0.010 + Math.random() * 0.020;
-      }
-    }
-
-    attr.needsUpdate = true;
-  });
-
-  if (!enabled) return null;
-
-  return (
-    <points ref={pointsRef} geometry={geometry} frustumCulled={false}>
-      <pointsMaterial
-        size={0.06}
-        color={"#bfe2ff"}
-        transparent
-        opacity={0.75}
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        sizeAttenuation
-      />
-    </points>
-  );
-}
-
-function EnergonField({ enabled }) {
-  if (!enabled) return null;
-
-  return (
-    <>
-      <Starfield enabled={true} />
-      <Sparkles
-        count={25}
-        speed={0.2}
-        opacity={0.75}
-        size={4}
-        scale={[10, 8, 10]}
-        position={[0, 0, -4.6]}
-        depthTest
-      />
-    </>
-  );
-}
-
-function TransactionSparks({ enabled, event, maxSparks = 22 }) {
-  const instRef = useRef(null);
-  const sparksRef = useRef([]);
-  const tmpObj = useMemo(() => new THREE.Object3D(), []);
-  const tmpColor = useMemo(() => new THREE.Color(), []);
-  const COLOR_INBOUND = useMemo(() => new THREE.Color("#BFE9FF"), []);
-  const COLOR_OUTBOUND = useMemo(() => new THREE.Color("#FFD7A1"), []);
-
-  useEffect(() => {
-    if (!instRef.current) return;
-    const colors = new Float32Array(maxSparks * 3);
-    instRef.current.instanceColor = new THREE.InstancedBufferAttribute(
-      colors,
-      3
-    );
-  }, [maxSparks]);
-
-  useEffect(() => {
-    if (!enabled || !event) return;
-    if (!instRef.current) return;
-
-    const sparks = sparksRef.current;
-
-    let idx = sparks.findIndex((s) => !s.active);
-    if (idx === -1) idx = 0;
-
-    const inbound = event.direction === "in";
-    const rewardBoost = event.isReward ? 1.15 : 1.0;
-
-    sparks[idx] = {
-      active: true,
-      x: (Math.random() - 0.5) * 18,
-      y: (Math.random() - 0.5) * 10,
-      z: -10 - Math.random() * 26,
-      angle: (Math.random() - 0.5) * 0.65,
-      speed: 0.55 + Math.random() * 0.55,
-      life: 0,
-      ttl: 0.85,
-      len: 0.22 + Math.random() * 0.22,
-      wid: 0.035 + Math.random() * 0.02,
-      color: inbound ? COLOR_INBOUND : COLOR_OUTBOUND,
-      boost: rewardBoost,
-    };
-  }, [event, enabled, COLOR_INBOUND, COLOR_OUTBOUND]);
-
-  useFrame((state, delta) => {
-    if (!enabled || !instRef.current) return;
-
-    const sparks = sparksRef.current;
-
-    if (sparks.length < maxSparks) {
-      for (let i = sparks.length; i < maxSparks; i++)
-        sparks.push({ active: false });
-    }
-
-    for (let i = 0; i < maxSparks; i++) {
-      const s = sparks[i];
-      if (!s || !s.active) {
-        tmpObj.position.set(0, 0, 9999);
-        tmpObj.scale.set(0, 0, 0);
-        tmpObj.rotation.set(0, 0, 0);
-        tmpObj.updateMatrix();
-        instRef.current.setMatrixAt(i, tmpObj.matrix);
-
-        if (instRef.current.instanceColor) {
-          tmpColor.setRGB(0, 0, 0);
-          instRef.current.setColorAt(i, tmpColor);
-        }
-        continue;
-      }
-
-      s.life += delta;
-      const p = Math.min(1, s.life / s.ttl);
-
-      s.z += s.speed * (delta * 60) * 0.08;
-      s.x += Math.sin(s.angle) * (delta * 60) * 0.006;
-      s.y += Math.cos(s.angle) * (delta * 60) * 0.004;
-
-      const pop = Math.sin(Math.min(1, p) * Math.PI);
-      const intensity = (0.15 + 0.95 * pop) * (s.boost ?? 1.0);
-
-      tmpObj.position.set(s.x, s.y, s.z);
-      tmpObj.rotation.set(0, 0, s.angle);
-      tmpObj.scale.set(
-        s.len * (0.55 + 0.9 * intensity),
-        s.wid * (0.6 + 0.7 * intensity),
-        1
-      );
-      tmpObj.updateMatrix();
-      instRef.current.setMatrixAt(i, tmpObj.matrix);
-
-      if (instRef.current.instanceColor) {
-        tmpColor.copy(s.color);
-        tmpColor.multiplyScalar(intensity);
-        instRef.current.setColorAt(i, tmpColor);
-      }
-
-      if (s.life >= s.ttl || s.z > 3.25) {
-        s.active = false;
-      }
-    }
-
-    instRef.current.instanceMatrix.needsUpdate = true;
-    if (instRef.current.instanceColor)
-      instRef.current.instanceColor.needsUpdate = true;
-  });
-
-  if (!enabled) return null;
-
-  return (
-    <instancedMesh
-      ref={instRef}
-      args={[null, null, maxSparks]}
-      frustumCulled={false}
-    >
-      <planeGeometry args={[1, 1]} />
-      <meshBasicMaterial
-        transparent
-        opacity={1}
-        depthWrite={false}
-        blending={THREE.AdditiveBlending}
-        vertexColors
-      />
-    </instancedMesh>
-  );
-}
-
-// =====================================================
-// SHOCKWAVE RING (billboard-ish) — triggers on block beat
-// =====================================================
-function ShockwaveRing({ enabled, beat }) {
-  const meshRef = useRef(null);
-  const life = useRef(0);
-
-  // reset on beat
-  useEffect(() => {
-    if (!enabled) return;
-    life.current = 0;
-  }, [beat, enabled]);
-
-  useFrame((state, delta) => {
-    if (!enabled || !meshRef.current) return;
-
-    // life 0..1 over ~0.55s
-    life.current = Math.min(1, life.current + delta / 0.55);
-    const p = life.current;
-
-    // expand + fade
-    const s = 0.42 + p * 1.25; // start small -> larger
-    meshRef.current.scale.set(s, s, 1);
-
-    // slight drift forward so it never gets z-fought
-    meshRef.current.position.z = 0.7;
-
-    // opacity curve: quick pop then fade
-    const alpha = Math.max(0, Math.pow(1 - p, 2.7)) * 0.12;
-    if (meshRef.current?.material) {
-      meshRef.current.material.opacity = alpha;
-    }
-
-    // hide when done
-    meshRef.current.visible = alpha > 0.02;
-  });
-
-  if (!enabled) return null;
-
-  return (
-    <mesh ref={meshRef} position={[0, 0, 0.7]} renderOrder={999}>
-      <ringGeometry args={[0.58, 0.60, 128]} />
-      <meshPhysicalMaterial
-  transparent
-  opacity={0}              // we animate this in useFrame
-  color={"#ffffff"}        // neutral (doesn't tint)
-  roughness={0.15}
-  metalness={0.0}
-  transmission={1.0}       // clear glass
-  thickness={0.01}         // 🔑 tiny thickness = no white “chunk”
-  ior={1.01}               // 🔑 almost air = subtle refraction
-  clearcoat={0.4}
-  clearcoatRoughness={0.25}
-  envMapIntensity={0.08}   // 🔑 keep reflections very low
-  depthTest={false}
-  depthWrite={false}
-/>
-    </mesh>
-  );
-}
-
-// =====================================================
-// GRID (1,000,000 dots) — Observer toggle view
-// Rule: Grid is always dark unless wallet holds EXACTLY 1 cube.
-// Lit count = totalMinted (global)
-// Lit positions = deterministic random (same for everyone)
-// Lit dots pulse + are max-bright (since they are tiny)
-// =====================================================
-
-const GRID_DOTS = 1_000_000; // 1M fixed field
-const GRID_SIDE = 1000; // 1000 x 1000
-const GRID_SPACING = 0.02; // scene scale
-
-const GRID_DARK_SIZE = 0.9; // px
-const GRID_DARK_OPACITY = 0.10;
-
-const GRID_LIT_BASE_SIZE = 2.6; // px (bigger base)
-const GRID_LIT_OPACITY_MAX = 1.0; // max bright
-
-function buildGridPositions() {
-  const positions = new Float32Array(GRID_DOTS * 3);
-  const half = (GRID_SIDE - 1) / 2;
-
-  let p = 0;
-  for (let y = 0; y < GRID_SIDE; y++) {
-    const yy = (y - half) * GRID_SPACING;
-    for (let x = 0; x < GRID_SIDE; x++) {
-      const xx = (x - half) * GRID_SPACING;
-      positions[p++] = xx;
-      positions[p++] = yy;
-      positions[p++] = 0;
-    }
+function countMaxHalvings(initialRewardWei) {
+  let reward = initialRewardWei;
+  let count = 0;
+  while (reward > 0n) {
+    reward /= 2n;
+    count += 1;
   }
-  return positions;
+  return count;
 }
 
-function fnv1a32(str) {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
+function buildHalvingRecords({
+  currentStage,
+  launchTimeSec,
+  halvingIntervalSec,
+  initialRewardPerBlockWei,
+}) {
+  const safeStage = Math.max(0, Number(currentStage) || 0);
+  const interval = Math.max(1, Number(halvingIntervalSec) || 1);
+  const launch = Math.max(0, Number(launchTimeSec) || 0);
 
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+  const blocksPerEra = Math.floor(interval / ENERGON_BLOCK_TIME_SECONDS);
+  const yearsPerHalving = interval / SECONDS_PER_YEAR;
 
-function sampleUniqueIndices(count, seed) {
-  const rand = mulberry32(seed);
-  const result = new Uint32Array(count);
-  const used = new Set();
+  const records = [];
+  let rewardBefore = initialRewardPerBlockWei;
+  let cumulativeRewardWei = 0n;
 
-  let i = 0;
-  while (i < count) {
-    const idx = Math.floor(rand() * GRID_DOTS);
-    if (!used.has(idx)) {
-      used.add(idx);
-      result[i++] = idx;
-    }
-  }
-  return result;
-}
+  for (let idx = 0; idx < safeStage; idx += 1) {
+    const halvingIndex = idx + 1;
+    const halvingTimestamp = launch + halvingIndex * interval;
 
-/**
- * GridPoints
- * - dark dots are static (pointsMaterial)
- * - lit dots pulse independently (GPU shader: random phase + random rate)
- */
-function GridPoints({ positions, lit = false }) {
-  const geomRef = useRef(null);
-  const matRef = useRef(null);
+    cumulativeRewardWei += BigInt(blocksPerEra) * rewardBefore;
+    const rewardAfter = rewardBefore / 2n;
 
-  // build geometry ONCE per positions buffer
-  useEffect(() => {
-    if (!geomRef.current) return;
-
-    const geom = geomRef.current;
-
-    // positions
-    geom.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-
-    // only need pulse attrs for lit layer
-    if (lit) {
-      const count = positions.length / 3;
-
-      // random phase 0..2pi
-      const phase = new Float32Array(count);
-      // random rate (how fast each dot pulses)
-      const rate = new Float32Array(count);
-
-      for (let i = 0; i < count; i++) {
-        phase[i] = Math.random() * Math.PI * 2;
-        rate[i] = 0.55 + Math.random() * 1.35; // 0.55..1.9
-      }
-
-      geom.setAttribute("phase", new THREE.BufferAttribute(phase, 1));
-      geom.setAttribute("rate", new THREE.BufferAttribute(rate, 1));
-    }
-
-    geom.computeBoundingSphere();
-  }, [positions, lit]);
-
-  // update shader time
-  useFrame((state) => {
-    if (!lit || !matRef.current) return;
-    matRef.current.uniforms.uTime.value = state.clock.getElapsedTime();
-  });
-
-  // ---- DARK (static) ----
-  if (!lit) {
-    return (
-      <points frustumCulled={false}>
-        <bufferGeometry ref={geomRef} />
-        <pointsMaterial
-          size={GRID_DARK_SIZE}
-          sizeAttenuation={false}
-          transparent
-          opacity={GRID_DARK_OPACITY}
-          color={"#1B2233"}
-          depthWrite={false}
-          blending={THREE.NormalBlending}
-        />
-      </points>
-    );
-  }
-
-  // ---- LIT (independent pulse) ----
-  const litMaterial = useMemo(() => {
-    const uniforms = {
-      uTime: { value: 0 },
-      uBaseSize: { value: GRID_LIT_BASE_SIZE }, // px
-      uAmpSize: { value: 1.35 },                // how much size grows on pulse
-      uMinAlpha: { value: 0.02 },               // dim floor (near off)
-      uMaxAlpha: { value: 1.0 },                // max brightness
-      uColor: { value: new THREE.Color("#F5FAFF") }, // near-white stars
-    };
-
-    const mat = new THREE.ShaderMaterial({
-      uniforms,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      vertexShader: `
-        uniform float uTime;
-        uniform float uBaseSize;
-        uniform float uAmpSize;
-
-        attribute float phase;
-        attribute float rate;
-
-        varying float vPulse;
-
-        void main() {
-          // per-dot pulse: 0..1
-          float s = 0.5 + 0.5 * sin(uTime * rate + phase);
-          // shape it so it feels like "dim -> bright -> dim"
-          vPulse = s * s; // softer rise / sharper peak
-
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          gl_Position = projectionMatrix * mvPosition;
-
-          // screen-space size (px)
-          gl_PointSize = uBaseSize + uAmpSize * vPulse;
-        }
-      `,
-      fragmentShader: `
-        uniform float uMinAlpha;
-        uniform float uMaxAlpha;
-        uniform vec3 uColor;
-
-        varying float vPulse;
-
-        void main() {
-          // make points circular
-          vec2 c = gl_PointCoord - vec2(0.5);
-          float r = length(c);
-          if (r > 0.5) discard;
-
-          float a = mix(uMinAlpha, uMaxAlpha, vPulse);
-
-          // soft edge so stars feel smoother
-          float edge = smoothstep(0.5, 0.35, r);
-          a *= edge;
-
-          gl_FragColor = vec4(uColor, a);
-        }
-      `,
+    records.push({
+      halvingIndex,
+      halvingTimestamp,
+      yearsFromLaunch: Number((yearsPerHalving * halvingIndex).toFixed(2)),
+      rewardBeforeWei: rewardBefore,
+      rewardAfterWei: rewardAfter,
+      estimatedEnergonHeight: blocksPerEra * halvingIndex,
+      estimatedCumulativeRewardsWei: cumulativeRewardWei,
     });
 
-    return mat;
-  }, []);
-
-  return (
-    <points frustumCulled={false}>
-      <bufferGeometry ref={geomRef} />
-      <primitive ref={matRef} object={litMaterial} attach="material" />
-    </points>
-  );
-}
-
-/**
- * GridScene
- * - Always renders dark 1M dot field
- * - If coherent (exactly 1 cube), overlays N lit dots
- * - IMPORTANT: only computes lit indices when coherent (prevents heavy work)
- */
-function GridScene({ coherent, totalMinted }) {
-  // Base positions once
-  const basePositionsRef = useRef(null);
-  if (!basePositionsRef.current) {
-    basePositionsRef.current = buildGridPositions();
+    rewardBefore = rewardAfter;
   }
 
-  // Deterministic constellation seed (global, stable)
+  return records;
+}
+
+function formatHalvingDate(unixSeconds) {
+  if (!unixSeconds) return "—";
+  try {
+    return new Date(Number(unixSeconds) * 1000).toLocaleDateString();
+  } catch {
+    return "—";
+  }
+}
+
+function formatCountdown(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function OrbitalMemoryNode({
+  record,
+  rarityTier,
+  isGenesis,
+  filamentEnabled,
+  filamentPulseSpeed,
+  onActiveChange,
+}) {
+  const [position, setPosition] = useState([1.75, 0.35, -0.8]);
+
   const seed = useMemo(() => {
-    return fnv1a32(`${String(CUBE_ADDRESS).toLowerCase()}|GRID_V1`);
-  }, []);
+    const h = Math.max(0, Number(record.halvingTimestamp) || 0);
+    const i = Math.max(1, Number(record.halvingIndex) || 1);
 
-  // ✅ Only compute when coherent (huge perf win)
-  const litIndices = useMemo(() => {
-    if (!coherent) return [];
-
-    // 🔒 SAFETY CLAMP
-    const minted = Math.max(0, Math.floor(Number(totalMinted) || 0));
-    if (minted <= 0) return [];
-
-    // never allow full saturation (protects sampler)
-    const count = Math.min(GRID_DOTS - 1, minted);
-
-    return sampleUniqueIndices(count, seed);
-  }, [coherent, totalMinted, seed]);
-
-  const litPositions = useMemo(() => {
-    if (!coherent || litIndices.length === 0) return null;
-
-    const base = basePositionsRef.current;
-    const n = litIndices.length;
-    const out = new Float32Array(n * 3);
-
-    for (let i = 0; i < n; i++) {
-      const src = litIndices[i] * 3;
-      const dst = i * 3;
-      out[dst] = base[src];
-      out[dst + 1] = base[src + 1];
-      out[dst + 2] = base[src + 2];
+    if (i === 1) {
+      return {
+        baseX: -1.95,
+        baseY: 1.15,
+        baseZ: -1.65,
+        orbitRadius: 0.16,
+        yWave: 0.1,
+        zWave: 0.08,
+        speed: 0.22,
+        phase: 0.7,
+      };
     }
-    return out;
-  }, [coherent, litIndices]);
+
+    if (i === 2) {
+      return {
+        baseX: 2.25,
+        baseY: 0.45,
+        baseZ: -1.55,
+        orbitRadius: 0.14,
+        yWave: 0.09,
+        zWave: 0.07,
+        speed: 0.18,
+        phase: 1.9,
+      };
+    }
+
+    if (i === 3) {
+      return {
+        baseX: 2.65,
+        baseY: -1.15,
+        baseZ: -1.85,
+        orbitRadius: 0.15,
+        yWave: 0.1,
+        zWave: 0.08,
+        speed: 0.16,
+        phase: 3.1,
+      };
+    }
+
+    const r1 = (Math.sin(h * 0.00017 + i * 1.13) + 1) * 0.5;
+    const r2 = (Math.sin(h * 0.00011 + i * 2.41) + 1) * 0.5;
+    const r3 = (Math.sin(h * 0.00007 + i * 3.77) + 1) * 0.5;
+
+    let baseX = -3.1 + r1 * 6.2;
+    let baseY = -1.6 + r2 * 3.2;
+    let baseZ = -2.2 + r3 * 1.6;
+
+    const minDistanceFromCenter = 2.45;
+    const dist = Math.sqrt(baseX * baseX + baseY * baseY + baseZ * baseZ);
+
+    if (dist < minDistanceFromCenter) {
+      const scale = minDistanceFromCenter / Math.max(dist, 0.001);
+      baseX *= scale;
+      baseY *= scale;
+      baseZ *= scale;
+    }
+
+    return {
+      baseX,
+      baseY,
+      baseZ,
+      orbitRadius: 0.1 + r1 * 0.08,
+      yWave: 0.06 + r2 * 0.06,
+      zWave: 0.05 + r3 * 0.05,
+      speed: 0.12 + r2 * 0.08,
+      phase: r3 * Math.PI * 2,
+    };
+  }, [record.halvingTimestamp, record.halvingIndex]);
+
+  useFrame((state) => {
+    const t = state.clock.getElapsedTime();
+
+    const orbitX = Math.sin(t * seed.speed + seed.phase) * seed.orbitRadius;
+    const orbitY = Math.cos(t * seed.speed * 1.15 + seed.phase) * seed.yWave;
+    const orbitZ = Math.sin(t * seed.speed * 0.82 + seed.phase) * seed.zWave;
+
+    setPosition([
+      seed.baseX + orbitX,
+      seed.baseY + orbitY,
+      seed.baseZ + orbitZ,
+    ]);
+  });
 
   return (
     <>
-      {/* Dark field (always visible) */}
-      <GridPoints positions={basePositionsRef.current} />
+      <EnergonEnergyFilaments
+        enabled={filamentEnabled}
+        active={filamentEnabled}
+        rarityTier={rarityTier}
+        from={[0, 0, 0]}
+        to={position}
+        pulseSpeed={filamentPulseSpeed}
+      />
 
-      {/* Lit overlay (only if coherent) */}
-      {coherent && litPositions ? (
-        <GridPoints positions={litPositions} lit globalPulse />
-      ) : null}
+      <HalvingMemoryOrb
+        halvingIndex={record.halvingIndex}
+        halvingHeight={record.halvingTimestamp}
+        mintedAtHalving={record.estimatedEnergonHeight}
+        guardians={record.yearsFromLaunch}
+        eonReleased={Number(record.estimatedCumulativeRewardsWei / 10n ** 18n)}
+        maxSupply={MAX_SUPPLY}
+        rarityTier={rarityTier}
+        isGenesis={isGenesis}
+        position={position}
+        onActiveChange={(active) => {
+          onActiveChange(active, record, record.halvingIndex);
+        }}
+      />
     </>
   );
 }
 
-// ✅ upgraded heartbeat shaping: constant alive microPulse + block-triggered double-thump
-function EnergonCube({ beat, mode, rarityTier, isGenesis, isBound }) {
-  const groupRef = useRef(null);
-
-  const cubeMatRef = useRef(null);
-  const sphereMatRef = useRef(null);
-  const edgeMatRef = useRef(null);
-
-  // ✅ two independent pulses
-  const pulse1 = useRef(0); // primary thump
-  const pulse2 = useRef(0); // secondary thump
-
-  const thumpTimerRef = useRef(null);
-
-  // Base palette
-  const baseColor = useMemo(() => new THREE.Color("#0B1020"), []);
-  const sphereBaseColor = useMemo(() => new THREE.Color("#0A0A0C"), []);
-  const edgeBaseColor = useMemo(() => new THREE.Color("#22324A"), []);
-
-  const rainbowColors = useMemo(
-    () => GENESIS_RAINBOW.map((c) => new THREE.Color(c)),
-    []
-  );
-  const pulseColorRef = useRef(new THREE.Color(RARITY_COLORS.Common));
-
-  const sphereOnly = mode === "SILENT" || mode === "FRACTURED";
-
-  const baseLocked = useRef(false);
-  useEffect(() => {
-    if (!sphereMatRef.current) return;
-    if (baseLocked.current) return;
-
-    sphereMatRef.current.color.copy(sphereBaseColor);
-    sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
-    sphereMatRef.current.emissiveIntensity = 0.12;
-    sphereMatRef.current.roughness = 0.35;
-    sphereMatRef.current.metalness = 0.05;
-
-    if (cubeMatRef.current) {
-      cubeMatRef.current.color.copy(baseColor);
-      cubeMatRef.current.transparent = true;
-      cubeMatRef.current.opacity = 0.08;
-      cubeMatRef.current.roughness = 0.08;
-      cubeMatRef.current.metalness = 0.0;
-      cubeMatRef.current.transmission = 0.35;
-      cubeMatRef.current.thickness = 0.9;
-      cubeMatRef.current.ior = 1.35;
-      cubeMatRef.current.clearcoat = 1;
-      cubeMatRef.current.clearcoatRoughness = 0.1;
-      cubeMatRef.current.envMapIntensity = 1.25;
-      cubeMatRef.current.emissive.copy(baseColor);
-      cubeMatRef.current.emissiveIntensity = 0.05;
-      cubeMatRef.current.depthWrite = false;
-    }
-
-    if (edgeMatRef.current) {
-      edgeMatRef.current.color.copy(edgeBaseColor);
-      edgeMatRef.current.transparent = true;
-      edgeMatRef.current.opacity = 0.28;
-    }
-
-    baseLocked.current = true;
-  }, [baseColor, sphereBaseColor, edgeBaseColor]);
-
-  // ✅ On each block beat: strong thump + delayed smaller thump
-  useEffect(() => {
-    if (mode !== "COHERENT") return;
-    if (!isBound) return;
-
-    if (isGenesis) {
-      const i = Math.floor(Math.random() * rainbowColors.length);
-      pulseColorRef.current.copy(rainbowColors[i]);
-    } else {
-      const tier = String(rarityTier || "Common");
-      const hex = RARITY_COLORS[tier] || RARITY_COLORS.Common;
-      pulseColorRef.current.set(hex);
-    }
-
-    if (thumpTimerRef.current) {
-      clearTimeout(thumpTimerRef.current);
-      thumpTimerRef.current = null;
-    }
-
-    pulse1.current = 1.0;
-
-    thumpTimerRef.current = setTimeout(() => {
-      pulse2.current = 0.85;
-      thumpTimerRef.current = null;
-    }, 400);
-
-    return () => {
-      if (thumpTimerRef.current) {
-        clearTimeout(thumpTimerRef.current);
-        thumpTimerRef.current = null;
-      }
-    };
-  }, [beat, mode, rarityTier, isGenesis, rainbowColors, isBound]);
-
-  useFrame((state, delta) => {
-    const t = state.clock.getElapsedTime();
-
-    const isCoherent = mode === "COHERENT";
-    const isFractured = mode === "FRACTURED";
-    const isSilent = mode === "SILENT";
-    const isDisconnected = mode === "DISCONNECTED";
-
-    const rotY = isFractured ? 0.55 : 0.12;
-    const rotX = isFractured ? 0.22 : 0.04;
-
-    const shakeAmt = isFractured ? 0.055 : 0.0;
-    const breatheSpeed = isFractured ? 3.6 : 0.9;
-
-    const decay1 = isCoherent && isBound ? 2.2 : 1.35;
-    const decay2 = isCoherent && isBound ? 3.2 : 1.8;
-    pulse1.current = Math.max(0, pulse1.current - delta * decay1);
-    pulse2.current = Math.max(0, pulse2.current - delta * decay2);
-
-    const microPulse =
-      isCoherent && isBound ? 0.5 + 0.5 * Math.sin(t * 2.2) : 0;
-
-    const breathe = 0.35 + 0.2 * Math.sin(t * breatheSpeed);
-
-    const hit = isBound ? pulse1.current + pulse2.current * 0.55 : 0;
-
-    if (groupRef.current) {
-      groupRef.current.rotation.y += delta * rotY;
-      groupRef.current.rotation.x += delta * rotX;
-
-      if (isFractured) {
-        const burst = 0.5 + 0.5 * Math.sin(t * 12.0);
-        const shake = (0.6 + 0.4 * Math.sin(t * 18)) * (burst + 0.25);
-        groupRef.current.position.x = Math.sin(t * 45) * shakeAmt * shake;
-        groupRef.current.position.y = Math.cos(t * 40) * shakeAmt * shake;
-
-        const swell = 0.05 + 0.02 * Math.sin(t * 10);
-        const s = 1 + swell;
-        groupRef.current.scale.set(s, s, s);
-      } else {
-        groupRef.current.position.x = 0;
-        groupRef.current.position.y = 0;
-
-        const idle = isCoherent && isBound ? (microPulse - 0.5) * 0.010 : 0;
-        const s = 1 + idle + (isCoherent && isBound ? hit * 0.04 : 0);
-        groupRef.current.scale.set(s, s, s);
-      }
-    }
-
-    if (sphereMatRef.current) {
-      sphereMatRef.current.color.copy(sphereBaseColor);
-
-      if ((isCoherent && !isBound) || isDisconnected || isSilent) {
-        sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
-        sphereMatRef.current.emissiveIntensity = 0.12 + breathe * 0.06;
-      } else if (isFractured) {
-        const flick = 0.5 + 0.5 * Math.sin(t * 14);
-        sphereMatRef.current.emissive.copy(new THREE.Color("#000000"));
-        sphereMatRef.current.emissiveIntensity =
-          0.12 + breathe * 0.08 + flick * 0.18;
-      } else {
-        sphereMatRef.current.emissive.copy(pulseColorRef.current);
-
-        const microGlow = microPulse * 0.55;
-        sphereMatRef.current.emissiveIntensity =
-          0.25 + breathe * 0.25 + microGlow + hit * 4.0;
-      }
-    }
-
-    if (!sphereOnly) {
-      if (cubeMatRef.current) {
-        cubeMatRef.current.color.copy(baseColor);
-        cubeMatRef.current.opacity = 0.08;
-        cubeMatRef.current.transmission = 0.35;
-        cubeMatRef.current.depthWrite = false;
-
-        const envBase = isBound ? 2.45 : 1.25;
-        const envBreathe = isBound ? 0.25 * Math.sin(t * 0.9) : 0;
-        const envHit = isBound ? hit * 1.25 : 0;
-        const envMicro = isBound ? microPulse * 0.22 : 0;
-
-        cubeMatRef.current.envMapIntensity =
-          envBase + envBreathe + envMicro + envHit;
-
-        if ((isCoherent && !isBound) || isDisconnected || isSilent) {
-          cubeMatRef.current.emissive.copy(baseColor);
-          cubeMatRef.current.emissiveIntensity = 0.05 + breathe * 0.04;
-        } else {
-          cubeMatRef.current.emissive.copy(pulseColorRef.current);
-          const microEm = microPulse * 0.12;
-          cubeMatRef.current.emissiveIntensity =
-            0.06 + breathe * 0.08 + microEm + hit * 1.0;
-        }
-
-        cubeMatRef.current.clearcoatRoughness = isBound ? 0.07 : 0.1;
-        cubeMatRef.current.roughness = isBound ? 0.06 : 0.08;
-      }
-
-      if (edgeMatRef.current) {
-        edgeMatRef.current.color.copy(edgeBaseColor);
-
-        const edgeMicro = isCoherent && isBound ? microPulse * 0.10 : 0;
-        edgeMatRef.current.opacity = 0.28 + breathe * 0.06 + edgeMicro;
-      }
-    }
-  });
+function OrbitalMemorySystem({
+  enabled,
+  rarityTier,
+  isGenesis,
+  records,
+  activeOrbHalvingIndex,
+  onActiveChange,
+}) {
+  if (!enabled || !records.length) return null;
 
   return (
-    <group ref={groupRef}>
-      <mesh>
-        <sphereGeometry args={[0.38, 48, 48]} />
-        <meshStandardMaterial
-          ref={sphereMatRef}
-          color={"#0A0A0C"}
-          emissive={"#000000"}
-          emissiveIntensity={0.12}
-          roughness={0.35}
-          metalness={0.05}
-        />
-      </mesh>
+    <>
+      {records.map((record) => {
+        const isFocused = activeOrbHalvingIndex === record.halvingIndex;
 
-      {sphereOnly ? null : (
-        <>
-          <mesh>
-            <boxGeometry args={[1.2, 1.2, 1.2]} />
-            <meshPhysicalMaterial
-              ref={cubeMatRef}
-              color={"#0B1020"}
-              transparent
-              opacity={0.08}
-              roughness={0.08}
-              metalness={0.0}
-              transmission={0.35}
-              thickness={0.9}
-              ior={1.35}
-              clearcoat={1}
-              clearcoatRoughness={0.1}
-              envMapIntensity={1.25}
-              depthWrite={false}
-            />
-          </mesh>
-
-          <lineSegments>
-            <edgesGeometry args={[new THREE.BoxGeometry(1.205, 1.205, 1.205)]} />
-            <lineBasicMaterial
-              ref={edgeMatRef}
-              color={"#22324A"}
-              transparent
-              opacity={0.28}
-            />
-          </lineSegments>
-        </>
-      )}
-    </group>
+        return (
+          <OrbitalMemoryNode
+            key={`memory-orb-${record.halvingIndex}`}
+            record={record}
+            rarityTier={rarityTier}
+            isGenesis={isGenesis}
+            filamentEnabled={isFocused}
+            filamentPulseSpeed={FILAMENT_ACTIVE_PULSE_SPEED}
+            onActiveChange={onActiveChange}
+          />
+        );
+      })}
+    </>
   );
 }
 
@@ -1148,18 +520,23 @@ function ObserverInner() {
   const { connect } = useConnect();
   const { disconnect } = useDisconnect();
 
-  // ✅ View toggle inside Observer: "CUBE" | "GRID"
   const [viewMode, setViewMode] = useState("CUBE");
 
   const [beat, setBeat] = useState(0);
   const [sparkEvent, setSparkEvent] = useState(null);
+  const [halvingInfo, setHalvingInfo] = useState(null);
+  const [activeOrbHalvingIndex, setActiveOrbHalvingIndex] = useState(null);
+  const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
 
   const lastSparkAt = useRef(0);
   const emitSpark = (next) => {
     const now = Date.now();
     if (now - lastSparkAt.current < 120) return;
     lastSparkAt.current = now;
-    setSparkEvent(next);
+    setSparkEvent({
+      ...next,
+      id: now + Math.random(),
+    });
   };
 
   const [hudOpen, setHudOpen] = useState(true);
@@ -1181,6 +558,13 @@ function ObserverInner() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  useEffect(() => {
+    const id = setInterval(() => {
+      setNowSec(Math.floor(Date.now() / 1000));
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const cubeCount = useReadContract({
     abi: erc721Abi,
     address: CUBE_ADDRESS,
@@ -1189,7 +573,6 @@ function ObserverInner() {
     query: { enabled: !!address },
   });
 
-  // ✅ totalMinted (global) — drives lit count on Grid
   const totalMintedRead = useReadContract({
     abi: cubeMiniAbi,
     address: CUBE_ADDRESS,
@@ -1198,21 +581,18 @@ function ObserverInner() {
   });
 
   const totalMintedN = useMemo(() => {
-  try {
-    const v = totalMintedRead.data;
-
-    if (typeof v === "bigint") {
-      const max = BigInt(Number.MAX_SAFE_INTEGER);
-      return v > max ? Number.MAX_SAFE_INTEGER : Number(v);
+    try {
+      const v = totalMintedRead.data;
+      if (typeof v === "bigint") {
+        const max = BigInt(Number.MAX_SAFE_INTEGER);
+        return v > max ? Number.MAX_SAFE_INTEGER : Number(v);
+      }
+      if (typeof v === "number") return v;
+      return 0;
+    } catch {
+      return 0;
     }
-
-    if (typeof v === "number") return v;
-
-    return 0;
-  } catch {
-    return 0;
-  }
-}, [totalMintedRead.data]);
+  }, [totalMintedRead.data]);
 
   const decimals = useReadContract({
     abi: erc20Abi,
@@ -1281,6 +661,8 @@ function ObserverInner() {
       setSparkEvent(null);
       lastSparkAt.current = 0;
       setHudOpen(true);
+      setHalvingInfo(null);
+      setActiveOrbHalvingIndex(null);
     }
   }, [isConnected, mode]);
 
@@ -1325,19 +707,23 @@ function ObserverInner() {
       mode !== "COHERENT" ||
       !address ||
       candidateTokenId == null
-    )
+    ) {
       return { ok: false, status: "IDLE", owner: null };
+    }
 
-    if (ownerOfRead.isLoading)
+    if (ownerOfRead.isLoading) {
       return { ok: false, status: "CHECKING", owner: null };
+    }
 
-    if (ownerOfRead.isError)
+    if (ownerOfRead.isError) {
       return { ok: false, status: "NOT_MINTED", owner: null };
+    }
 
     if (ownerOfRead.isSuccess) {
       const owner = ownerOfRead.data;
-      if (sameAddr(owner, address))
+      if (sameAddr(owner, address)) {
         return { ok: true, status: "OWNED", owner };
+      }
       return { ok: false, status: "NOT_OWNED", owner };
     }
 
@@ -1369,8 +755,9 @@ function ObserverInner() {
   });
 
   useEffect(() => {
-    if (tokenUriRead.isSuccess && tokenUriRead.data)
+    if (tokenUriRead.isSuccess && tokenUriRead.data) {
       setTokenUri(tokenUriRead.data);
+    }
   }, [tokenUriRead.isSuccess, tokenUriRead.data]);
 
   useEffect(() => {
@@ -1415,23 +802,24 @@ function ObserverInner() {
   const attrsCapped = useMemo(() => attrs.slice(0, MAX_ATTRS), [attrs]);
   const attrMap = useMemo(() => attributesToMap(attrsCapped), [attrsCapped]);
 
-  const rarityTier = useMemo(() => {
-    const r = attrMap["Rarity Tier"];
-    return r ? String(r) : "Common";
-  }, [attrMap]);
-
   const tokenIdStr = useMemo(
     () => (derivedTokenId != null ? safeBigIntToString(derivedTokenId) : ""),
     [derivedTokenId]
   );
 
   const isGenesis = useMemo(() => {
-    if (tokenIdStr === "1") return true;
-    const g =
-      attrMap["Genesis Status"] ||
-      attrMap["Genesis Type"] ||
-      attrMap["Genesis"];
-    return !!g;
+    return tokenIdStr === "1";
+  }, [tokenIdStr]);
+
+  const rarityTier = useMemo(() => {
+    if (tokenIdStr === "1") return "Genesis";
+
+    const r =
+      attrMap["Rarity Tier"] ??
+      attrMap["Rarity"] ??
+      attrMap["rarityTier"];
+
+    return r ? String(r) : "Common";
   }, [tokenIdStr, attrMap]);
 
   const rarityLabel = useMemo(
@@ -1447,32 +835,39 @@ function ObserverInner() {
 
   const ownershipMsg = useMemo(() => {
     if (mode !== "COHERENT" || candidateTokenId == null) return null;
-    if (ownerOfRead.isLoading)
+    if (ownerOfRead.isLoading) {
       return { text: "Checking ownership…", color: "rgba(255,255,255,0.70)" };
-    if (ownership.status === "NOT_MINTED")
+    }
+    if (ownership.status === "NOT_MINTED") {
       return { text: "Not minted / invalid tokenId.", color: "#ff8a3d" };
-    if (ownership.status === "NOT_OWNED")
+    }
+    if (ownership.status === "NOT_OWNED") {
       return { text: "Token is not owned by this wallet.", color: "#ff8a3d" };
-    if (ownership.status === "OWNED")
+    }
+    if (ownership.status === "OWNED") {
       return { text: "Owned ✓", color: "rgba(150,255,190,0.9)" };
+    }
     return null;
   }, [mode, candidateTokenId, ownerOfRead.isLoading, ownership.status]);
 
-  // ✅ Heartbeat only runs AFTER bound (real chain observation)
   useWatchBlockNumber({
     enabled: isConnected && mode === "COHERENT" && isBound,
     onBlockNumber() {
       setBeat((b) => b + 1);
     },
   });
+  
+  // ✅ HEARTBEAT FALLBACK (NEW — FIXES YOUR ISSUE)
+  useEffect(() => {
+    if (!(isConnected && mode === "COHERENT" && isBound)) return;
+  
+    const id = setInterval(() => {
+      setBeat((b) => b + 1);
+    }, 2400); // ~block rhythm feel
+  
+    return () => clearInterval(id);
+  }, [isConnected, mode, isBound]);
 
-  // ============================================================
-  // ✅ GLOBAL SPARKS (UPDATED):
-  // Sparks trigger when controller energonHeight hits milestones.
-  // Burst: 18 sparks, Pulse style, Random direction, Random reward feel
-  // ============================================================
-
-  // Read controller() from Cube (fallback to locked controller)
   const controllerAddrRead = useReadContract({
     abi: cubeMiniAbi,
     address: CUBE_ADDRESS,
@@ -1492,26 +887,162 @@ function ObserverInner() {
     return CONTROLLER_ADDRESS_LOCKED;
   }, [controllerAddrRead?.data]);
 
-  // Read energonHeight from Controller
   const heightRead = useReadContract({
     abi: controllerMiniAbi,
     address: controllerAddress,
     functionName: "energonHeight",
     query: {
       enabled: !!controllerAddress,
-      refetchInterval: 5000, // poll (keeps it resilient even if websocket drops)
+      refetchInterval: 5000,
     },
   });
+
+  const launchTimeRead = useReadContract({
+    abi: controllerMiniAbi,
+    address: controllerAddress,
+    functionName: "launchTime",
+    query: {
+      enabled: !!controllerAddress,
+      refetchInterval: 60000,
+    },
+  });
+
+  const halvingIntervalRead = useReadContract({
+    abi: controllerMiniAbi,
+    address: controllerAddress,
+    functionName: "halvingInterval",
+    query: {
+      enabled: !!controllerAddress,
+      refetchInterval: 60000,
+    },
+  });
+
+  const rewardPerBlockRead = useReadContract({
+    abi: controllerMiniAbi,
+    address: controllerAddress,
+    functionName: "currentRewardPerBlock",
+    query: {
+      enabled: !!controllerAddress,
+      refetchInterval: 60000,
+    },
+  });
+
+  const lastHalvingTimeRead = useReadContract({
+    abi: controllerMiniAbi,
+    address: controllerAddress,
+    functionName: "lastHalvingTime",
+    query: {
+      enabled: !!controllerAddress,
+      refetchInterval: 60000,
+    },
+  });
+
+  const currentHeight = useMemo(() => {
+    try {
+      const v = heightRead.data;
+      if (typeof v === "bigint") return Number(v);
+      if (typeof v === "number") return v;
+      return 0;
+    } catch {
+      return 0;
+    }
+  }, [heightRead.data]);
+
+  const launchTimeSec = useMemo(() => {
+    try {
+      const v = launchTimeRead.data;
+      if (typeof v === "bigint") return Number(v);
+      if (typeof v === "number") return v;
+      return 0;
+    } catch {
+      return 0;
+    }
+  }, [launchTimeRead.data]);
+
+  const halvingIntervalSec = useMemo(() => {
+    try {
+      const v = halvingIntervalRead.data;
+      if (typeof v === "bigint") return Number(v);
+      if (typeof v === "number") return v;
+      return 4 * SECONDS_PER_YEAR;
+    } catch {
+      return 4 * SECONDS_PER_YEAR;
+    }
+  }, [halvingIntervalRead.data]);
+
+  const lastHalvingTimeSec = useMemo(() => {
+    try {
+      const v = lastHalvingTimeRead.data;
+      if (typeof v === "bigint") return Number(v);
+      if (typeof v === "number") return v;
+      return launchTimeSec;
+    } catch {
+      return launchTimeSec;
+    }
+  }, [lastHalvingTimeRead.data, launchTimeSec]);
+
+  const currentRewardPerBlockWei = useMemo(() => {
+    try {
+      const v = rewardPerBlockRead.data;
+      if (typeof v === "bigint") return v;
+      if (typeof v === "number") return BigInt(v);
+      return INITIAL_REWARD_PER_BLOCK_WEI;
+    } catch {
+      return INITIAL_REWARD_PER_BLOCK_WEI;
+    }
+  }, [rewardPerBlockRead.data]);
+
+  const maxHalvingCount = useMemo(() => {
+    return countMaxHalvings(INITIAL_REWARD_PER_BLOCK_WEI);
+  }, []);
+
+  const scheduledHalvingStage = useMemo(() => {
+    if (!launchTimeSec || !halvingIntervalSec) return 0;
+    if (nowSec <= launchTimeSec) return 0;
+
+    const elapsed = nowSec - launchTimeSec;
+    return Math.min(maxHalvingCount, Math.floor(elapsed / halvingIntervalSec));
+  }, [nowSec, launchTimeSec, halvingIntervalSec, maxHalvingCount]);
+
+  const currentHalvingStage =
+    TEST_FORCE_HALVING_STAGE ?? scheduledHalvingStage;
+
+  const halvingRecords = useMemo(() => {
+    return buildHalvingRecords({
+      currentStage: currentHalvingStage,
+      launchTimeSec,
+      halvingIntervalSec,
+      initialRewardPerBlockWei: INITIAL_REWARD_PER_BLOCK_WEI,
+    });
+  }, [currentHalvingStage, launchTimeSec, halvingIntervalSec]);
+
+  const currentRewardPerBlockText = useMemo(() => {
+    return formatEonWei(currentRewardPerBlockWei);
+  }, [currentRewardPerBlockWei]);
+
+  const nextHalvingTimestamp = useMemo(() => {
+    if (!lastHalvingTimeSec || !halvingIntervalSec) return 0;
+    return lastHalvingTimeSec + halvingIntervalSec;
+  }, [lastHalvingTimeSec, halvingIntervalSec]);
+
+  const nextHalvingCountdownSec = useMemo(() => {
+    if (!nextHalvingTimestamp) return 0;
+    return Math.max(0, nextHalvingTimestamp - nowSec);
+  }, [nextHalvingTimestamp, nowSec]);
+
+  const nextHalvingCountdownText = useMemo(() => {
+    if (currentRewardPerBlockWei <= 0n) return "Complete";
+    return formatCountdown(nextHalvingCountdownSec);
+  }, [nextHalvingCountdownSec, currentRewardPerBlockWei]);
 
   const lastMilestoneRef = useRef(null);
   const burstTimerRef = useRef(null);
 
   useEffect(() => {
     if (!isConnected) return;
-    if (!isBound) return; // coherent + bound only (matches your rule)
+    if (!isBound) return;
     if (!heightRead?.data) return;
 
-    // clear any previous burst timer if effect reruns
     if (burstTimerRef.current) {
       clearInterval(burstTimerRef.current);
       burstTimerRef.current = null;
@@ -1539,16 +1070,13 @@ function ObserverInner() {
     const h = Number(heightRead.data);
     if (!Number.isFinite(h) || h <= 0) return;
 
-    // ✅ milestone bucket (clean when height starts at 1)
     const milestoneIndex = Math.floor((h - 1) / SPARK_MILESTONE);
 
-    // first load: seed only
     if (lastMilestoneRef.current == null) {
       lastMilestoneRef.current = milestoneIndex;
       return;
     }
 
-    // burst when we cross into a new bucket
     if (milestoneIndex > lastMilestoneRef.current) {
       lastMilestoneRef.current = milestoneIndex;
       startPulseBurst();
@@ -1577,553 +1105,131 @@ function ObserverInner() {
         overflow: "hidden",
       }}
     >
-      {/* LEFT HUD */}
       <div
         style={{
           position: "absolute",
-          top: 18,
-          left: 18,
-          zIndex: 20,
-          width: 420,
-          maxWidth: "calc(100vw - 36px)",
-          fontFamily: "ui-sans-serif, system-ui",
-          lineHeight: 1.25,
-          pointerEvents: "auto",
+          inset: 0,
+          zIndex: 60,
+          pointerEvents: "none",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 12,
-          }}
-        >
-          <button
-            onClick={() => setHudOpen((v) => !v)}
-            style={{
-              flex: 1,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              padding: 0,
-              border: "none",
-              background: "transparent",
-              color: "white",
-              cursor: "pointer",
-              textAlign: "left",
-            }}
-            title={hudOpen ? "Collapse HUD" : "Expand HUD"}
-          >
-            <div>
-              <div
-                style={{
-                  letterSpacing: "0.22em",
-                  fontSize: 12,
-                  opacity: 0.75,
-                }}
-              >
-                ENERGON GUARDIAN
-              </div>
-              <div
-                style={{
-                  fontSize: 20,
-                  marginTop: 6,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  flexWrap: "wrap",
-                }}
-              >
-                Observer Dashboard <StatusPill mode={mode} />
-
-                {/* ✅ View toggle: CUBE / GRID */}
-                <span style={{ display: "inline-flex", gap: 8, marginLeft: 2 }}>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setViewMode("CUBE");
-                    }}
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      border: "1px solid rgba(255,255,255,0.16)",
-                      background:
-                        viewMode === "CUBE"
-                          ? "rgba(255,255,255,0.12)"
-                          : "rgba(255,255,255,0.05)",
-                      color: "white",
-                      cursor: "pointer",
-                      fontSize: 11,
-                      letterSpacing: "0.12em",
-                      opacity: 0.95,
-                    }}
-                    title="Cube view"
-                  >
-                    CUBE
-                  </button>
-
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setViewMode("GRID");
-                    }}
-                    style={{
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      border: "1px solid rgba(255,255,255,0.16)",
-                      background:
-                        viewMode === "GRID"
-                          ? "rgba(255,255,255,0.12)"
-                          : "rgba(255,255,255,0.05)",
-                      color: "white",
-                      cursor: "pointer",
-                      fontSize: 11,
-                      letterSpacing: "0.12em",
-                      opacity: 0.95,
-                    }}
-                    title="Grid view"
-                  >
-                    GRID
-                  </button>
-                </span>
-
-                <span style={{ opacity: 0.55, fontSize: 12, marginLeft: 2 }}>
-                  {hudOpen ? "▴" : "▾"}
-                </span>
-              </div>
-            </div>
-          </button>
-
-          {!isConnected ? (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                connect({ connector: injected() });
-              }}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.18)",
-                background: "rgba(255,255,255,0.06)",
-                color: "white",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Connect
-            </button>
-          ) : (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                disconnect();
-              }}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(255,255,255,0.18)",
-                background: "rgba(255,255,255,0.06)",
-                color: "white",
-                cursor: "pointer",
-                whiteSpace: "nowrap",
-              }}
-            >
-              Disconnect
-            </button>
-          )}
+        <div style={{ pointerEvents: "auto" }}>
+          <ObserverHud
+            hudOpen={hudOpen}
+            setHudOpen={setHudOpen}
+            mode={mode}
+            isConnected={isConnected}
+            address={address}
+            connect={connect}
+            disconnect={disconnect}
+            viewMode={viewMode}
+            setViewMode={setViewMode}
+            cubeCount={cubeCount}
+            cubeN={cubeN}
+            eonText={eonText}
+            beat={beat}
+            isBound={isBound}
+            totalMintedN={totalMintedN}
+            tokenPanelOpen={tokenPanelOpen}
+            setTokenPanelOpen={setTokenPanelOpen}
+            tokenIdStr={tokenIdStr}
+            rarityLabel={rarityLabel}
+            displayedCandidateId={displayedCandidateId}
+            isGenesis={isGenesis}
+            manualTokenId={manualTokenId}
+            setManualTokenId={setManualTokenId}
+            setManualTouched={setManualTouched}
+            manualTokenIdValid={manualTokenIdValid}
+            ownershipMsg={ownershipMsg}
+            derivedTokenId={derivedTokenId}
+            loadingMeta={loadingMeta}
+            metaErr={metaErr}
+            meta={meta}
+            shortAddr={shortAddr}
+          />
         </div>
 
-        {hudOpen ? (
+        {hudOpen && SHOW_PROTOCOL_CLOCK && (
           <div
             style={{
-              marginTop: 14,
-              border: "1px solid rgba(255,255,255,0.10)",
-              background: "rgba(255,255,255,0.04)",
-              borderRadius: 16,
-              padding: 14,
+              position: "absolute",
+              left: 20,
+              top: 440,
+              zIndex: 65,
+              width: 270,
+              padding: "12px 14px",
+              borderRadius: 14,
+              background: "rgba(10,14,24,0.72)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: "white",
+              fontSize: 12,
+              lineHeight: 1.55,
+              backdropFilter: "blur(10px)",
+              pointerEvents: "none",
             }}
           >
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    opacity: 0.65,
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  WALLET
-                </div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
-                  {isConnected ? shortAddr(address) : "Not connected"}
-                </div>
-              </div>
-
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    opacity: 0.65,
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  CUBE COUNT
-                </div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
-                  {cubeCount.isLoading ? "…" : String(cubeN)}
-                </div>
-              </div>
-
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    opacity: 0.65,
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  EON BALANCE
-                </div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
-                  {isConnected ? eonText : "—"}
-                </div>
-              </div>
-
-              <div>
-                <div
-                  style={{
-                    fontSize: 11,
-                    opacity: 0.65,
-                    letterSpacing: "0.08em",
-                  }}
-                >
-                  HEARTBEAT
-                </div>
-                <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
-                  {mode === "COHERENT" ? (isBound ? beat : "—") : beat}
-                  {isConnected && mode === "COHERENT" && !isBound ? (
-                    <span style={{ opacity: 0.6 }}> (locked)</span>
-                  ) : null}
-                  {isConnected && mode !== "COHERENT" ? (
-                    <span style={{ opacity: 0.6 }}> (locked)</span>
-                  ) : null}
-                </div>
-              </div>
-
-              {viewMode === "GRID" && (
-  <div style={{ gridColumn: "1 / span 2" }}>
-    <div
-      style={{
-        fontSize: 11,
-        opacity: 0.65,
-        letterSpacing: "0.08em",
-      }}
-    >
-      TOTAL MINTED (GLOBAL)
-    </div>
-    <div style={{ marginTop: 6, fontSize: 14, opacity: 0.95 }}>
-      {String(totalMintedN)}
-    </div>
-  </div>
-)}
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Protocol Clock</div>
+            <div>Launch: {formatHalvingDate(launchTimeSec)}</div>
+            <div>
+              Halving Interval: {(halvingIntervalSec / SECONDS_PER_YEAR).toFixed(2)} years
             </div>
-
-            {mode === "COHERENT" ? (
-              <div
-                style={{
-                  marginTop: 12,
-                  borderTop: "1px solid rgba(255,255,255,0.08)",
-                  paddingTop: 12,
-                }}
-              >
-                {!tokenPanelOpen && isBound ? (
-                  <button
-                    onClick={() => setTokenPanelOpen(true)}
-                    style={{
-                      width: "100%",
-                      textAlign: "left",
-                      padding: "10px 12px",
-                      borderRadius: 14,
-                      border: "1px solid rgba(255,255,255,0.10)",
-                      background: "rgba(0,0,0,0.18)",
-                      color: "white",
-                      cursor: "pointer",
-                    }}
-                    title="Click to edit token ID"
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 10,
-                      }}
-                    >
-                      <div style={{ fontSize: 12, opacity: 0.9 }}>
-                        Token ID:{" "}
-                        <span style={{ fontWeight: 700, opacity: 0.98 }}>
-                          {tokenIdStr}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 12, opacity: 0.9 }}>
-                        Rarity:{" "}
-                        <span style={{ fontWeight: 700, opacity: 0.98 }}>
-                          {rarityLabel}
-                        </span>
-                      </div>
-                    </div>
-                  </button>
-                ) : (
-                  <>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "space-between",
-                        gap: 10,
-                      }}
-                    >
-                      <div style={{ fontSize: 12, opacity: 0.82 }}>
-                        Token ID:{" "}
-                        <span style={{ opacity: 0.98, fontWeight: 600 }}>
-                          {displayedCandidateId}
-                        </span>
-                        {isGenesis ? (
-                          <span style={{ marginLeft: 10, opacity: 0.75 }}>
-                            (Genesis)
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div style={{ fontSize: 12, opacity: 0.82 }}>
-                        Rarity:{" "}
-                        <span style={{ opacity: 0.98, fontWeight: 600 }}>
-                          {isBound ? rarityLabel : "—"}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: 10 }}>
-                      <div
-                        style={{
-                          fontSize: 12,
-                          opacity: 0.72,
-                          marginBottom: 8,
-                        }}
-                      >
-                        Token ID (loads only if owned):
-                      </div>
-                      <input
-                        value={manualTokenId}
-                        onChange={(e) => {
-                          setManualTouched(true);
-                          setManualTokenId(e.target.value);
-                        }}
-                        inputMode="numeric"
-                        placeholder="e.g. 1"
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: 12,
-                          border:
-                            manualTokenId && !manualTokenIdValid
-                              ? "1px solid rgba(255,70,70,0.65)"
-                              : "1px solid rgba(255,255,255,0.14)",
-                          background: "rgba(0,0,0,0.25)",
-                          color: "white",
-                          outline: "none",
-                        }}
-                      />
-                      {manualTokenId && !manualTokenIdValid ? (
-                        <div
-                          style={{
-                            marginTop: 6,
-                            fontSize: 11,
-                            opacity: 0.75,
-                            color: "#ff8a3d",
-                          }}
-                        >
-                          Digits only.
-                        </div>
-                      ) : null}
-                      {ownershipMsg ? (
-                        <div
-                          style={{
-                            marginTop: 8,
-                            fontSize: 12,
-                            color: ownershipMsg.color,
-                            opacity: 0.95,
-                          }}
-                        >
-                          {ownershipMsg.text}
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
-                      Metadata:{" "}
-                      {derivedTokenId == null
-                        ? "—"
-                        : loadingMeta
-                        ? "Loading…"
-                        : metaErr
-                        ? <span style={{ color: "#ff8a3d" }}>{metaErr}</span>
-                        : meta
-                        ? "OK"
-                        : "—"}
-                    </div>
-
-                    {isBound ? (
-                      <div style={{ marginTop: 10 }}>
-                        <button
-                          onClick={() => setTokenPanelOpen(false)}
-                          style={{
-                            padding: "8px 10px",
-                            borderRadius: 12,
-                            border: "1px solid rgba(255,255,255,0.12)",
-                            background: "rgba(255,255,255,0.06)",
-                            color: "white",
-                            cursor: "pointer",
-                            fontSize: 12,
-                          }}
-                        >
-                          Collapse
-                        </button>
-                      </div>
-                    ) : null}
-                  </>
-                )}
-              </div>
-            ) : null}
-
-            {mode === "FRACTURED" ? (
-              <div style={{ marginTop: 12, fontSize: 12, opacity: 0.75 }}>
-                Fractured mode: more than 1 cube detected. (Metadata display
-                disabled by design.)
-              </div>
-            ) : null}
+            <div>Next Halving In: {nextHalvingCountdownText}</div>
+            <div>Next Halving Date: {formatHalvingDate(nextHalvingTimestamp)}</div>
+            <div>Reward / Block: {currentRewardPerBlockText} EON</div>
+            <div>Energon Height: {currentHeight}</div>
           </div>
-        ) : null}
+        )}
+
+        <div style={{ pointerEvents: "auto" }}>
+          <AttributesPanel
+            canShowAttributes={canShowAttributes}
+            isNarrow={isNarrow}
+            attrsOpen={attrsOpen}
+            setAttrsOpen={setAttrsOpen}
+            attrsCapped={attrsCapped}
+            maxAttrs={MAX_ATTRS}
+            sheetInset={SHEET_INSET}
+            sheetH={SHEET_H}
+            sheetCollapsedH={SHEET_COLLAPSED_H}
+            attrPanelInset={ATTR_PANEL_INSET}
+            attrPanelW={ATTR_PANEL_W}
+            attrPanelMaxH={ATTR_PANEL_MAX_H}
+            attrCollapsedH={ATTR_COLLAPSED_H}
+            attrPanelGap={ATTR_PANEL_GAP}
+          />
+        </div>
+
+        {halvingInfo && (
+          <div
+            style={{
+              position: "absolute",
+              right: 24,
+              top: 90,
+              zIndex: 70,
+              padding: "12px 14px",
+              borderRadius: 14,
+              background: "rgba(10,14,24,0.78)",
+              border: "1px solid rgba(255,255,255,0.12)",
+              color: "white",
+              fontSize: 13,
+              lineHeight: 1.5,
+              backdropFilter: "blur(10px)",
+              pointerEvents: "none",
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>Halving Memory</div>
+            <div>Index: {halvingInfo.halvingIndex}</div>
+            <div>Date: {formatHalvingDate(halvingInfo.halvingTimestamp)}</div>
+            <div>Years From Launch: {halvingInfo.yearsFromLaunch}</div>
+            <div>Reward After: {formatEonWei(halvingInfo.rewardAfterWei)} EON</div>
+            <div>Est. Energon Height: {halvingInfo.estimatedEnergonHeight}</div>
+            <div>
+              Est. Rewards Released: {formatEonWei(halvingInfo.estimatedCumulativeRewardsWei)} EON
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ATTRIBUTES */}
-      {canShowAttributes ? (
-        <div
-          style={
-            isNarrow
-              ? {
-                  position: "absolute",
-                  left: SHEET_INSET,
-                  right: SHEET_INSET,
-                  bottom: SHEET_INSET,
-                  height: attrsOpen ? SHEET_H : SHEET_COLLAPSED_H,
-                  zIndex: 22,
-                  padding: 12,
-                  boxSizing: "border-box",
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  borderRadius: 18,
-                  background: "rgba(7,10,18,0.92)",
-                  backdropFilter: "blur(10px)",
-                  WebkitBackdropFilter: "blur(10px)",
-                  fontFamily: "ui-sans-serif, system-ui",
-                  lineHeight: 1.25,
-                  overflow: "hidden",
-                  pointerEvents: "auto",
-                  display: "flex",
-                  flexDirection: "column",
-                  transition: "height 220ms ease",
-                }
-              : {
-                  position: "absolute",
-                  right: ATTR_PANEL_INSET,
-                  bottom: ATTR_PANEL_INSET,
-                  width: ATTR_PANEL_W,
-                  height: attrsOpen ? ATTR_PANEL_MAX_H : ATTR_COLLAPSED_H,
-                  zIndex: 22,
-                  padding: 12,
-                  boxSizing: "border-box",
-                  border: "1px solid rgba(255,255,255,0.10)",
-                  borderRadius: 18,
-                  background: "rgba(7,10,18,0.92)",
-                  backdropFilter: "blur(10px)",
-                  WebkitBackdropFilter: "blur(10px)",
-                  fontFamily: "ui-sans-serif, system-ui",
-                  lineHeight: 1.25,
-                  overflow: "hidden",
-                  pointerEvents: "auto",
-                  transition: "height 220ms ease",
-                }
-          }
-        >
-          <button
-            onClick={() => setAttrsOpen((v) => !v)}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              gap: 10,
-              padding: 0,
-              border: "none",
-              background: "transparent",
-              color: "white",
-              cursor: "pointer",
-              textAlign: "left",
-            }}
-            title={attrsOpen ? "Collapse attributes" : "Expand attributes"}
-          >
-            <div
-              style={{
-                fontSize: 12,
-                opacity: 0.85,
-                letterSpacing: "0.10em",
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-              }}
-            >
-              ATTRIBUTES{" "}
-              <span style={{ opacity: 0.65, fontSize: 12 }}>
-                {attrsOpen ? "▴" : "▾"}
-              </span>
-            </div>
-            <div style={{ fontSize: 10, opacity: 0.6 }}>
-              {attrsOpen ? `Showing ${attrsCapped.length}/${MAX_ATTRS}` : null}
-            </div>
-          </button>
-
-          {attrsOpen ? (
-            <div
-              style={{
-                marginTop: 10,
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: ATTR_PANEL_GAP,
-                overflow: "hidden",
-                alignContent: "start",
-                flex: 1,
-              }}
-            >
-              {attrsCapped.map((a, idx) => {
-                const k =
-                  a?.trait_type ?? a?.traitType ?? `Attribute ${idx + 1}`;
-                const v = a?.value;
-                return <AttrTileSmall key={`${k}-${idx}`} k={k} v={v} />;
-              })}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      {/* CANVAS */}
       <div
         style={{
           position: "absolute",
@@ -2131,11 +1237,11 @@ function ObserverInner() {
           paddingBottom: bottomPad,
           boxSizing: "border-box",
           zIndex: 30,
-          pointerEvents: "none",
+          pointerEvents: "auto",
         }}
       >
         <Canvas
-          style={{ pointerEvents: "none" }}
+          style={{ pointerEvents: "auto" }}
           camera={
             viewMode === "GRID"
               ? { position: [0, 0, 12], fov: 55 }
@@ -2144,39 +1250,66 @@ function ObserverInner() {
           gl={{ antialias: true, alpha: true }}
         >
           {viewMode === "GRID" ? (
-            <>
-              {/* GRID VIEW: always dark; lights only if exactly 1 cube */}
-              <GridScene
-                coherent={isConnected && mode === "COHERENT"}
-                totalMinted={totalMintedN}
-              />
-            </>
+            <GridScene
+            coherent={isConnected && mode === "COHERENT"}
+            totalMinted={totalMintedN}
+            gridSeedKey={CUBE_ADDRESS}
+            connectedWalletAddress={address}
+            connectedCubeRarity={rarityTier}
+            connectedIsGenesis={isGenesis}
+          />
           ) : (
             <>
-  <ambientLight intensity={0.25} />
-  <directionalLight position={[3, 4, 2]} intensity={1.35} />
-  <pointLight position={[-3, -2, 2]} intensity={0.7} />
+              <ambientLight intensity={0.25} />
+              <directionalLight position={[3, 4, 2]} intensity={1.35} />
+              <pointLight position={[-3, -2, 2]} intensity={0.7} />
 
-  <EnergonField enabled={mode === "COHERENT" && isBound} />
+              <EnergonField enabled={mode === "COHERENT" && isBound} />
 
-  <TransactionSparks
-    enabled={mode === "COHERENT" && isBound}
-    event={sparkEvent}
-  />
+              <TransactionSparks
+                enabled={mode === "COHERENT" && isBound}
+                event={sparkEvent}
+              />
 
-  {/* 🔥 NEW BLOCK-BEAT EFFECTS */}
-  <ShockwaveRing enabled={mode === "COHERENT" && isBound} beat={beat} />
-  
-  <EnergonCube
-    beat={beat}
-    mode={mode}
-    rarityTier={rarityTier}
-    isGenesis={isGenesis}
-    isBound={isBound}
-  />
+              <ShockwaveRing
+                enabled={mode === "COHERENT" && isBound}
+                beat={beat}
+              />
 
-  <Environment preset="city" />
-</>
+              <EnergonCube
+                beat={beat}
+                mode={mode}
+                rarityTier={rarityTier}
+                isGenesis={isGenesis}
+                isBound={isBound}
+                totalMinted={totalMintedN}
+                maxSupply={MAX_SUPPLY}
+                halvingStage={currentHalvingStage}
+              />
+
+              <OrbitalMemorySystem
+                enabled={mode === "COHERENT" && isBound}
+                rarityTier={rarityTier}
+                isGenesis={isGenesis}
+                records={halvingRecords}
+                activeOrbHalvingIndex={activeOrbHalvingIndex}
+                onActiveChange={(active, info, halvingIndex) => {
+                  if (active) {
+                    setHalvingInfo(info);
+                    setActiveOrbHalvingIndex(halvingIndex);
+                  } else {
+                    setHalvingInfo((prev) =>
+                      prev?.halvingIndex === halvingIndex ? null : prev
+                    );
+                    setActiveOrbHalvingIndex((prev) =>
+                      prev === halvingIndex ? null : prev
+                    );
+                  }
+                }}
+              />
+
+              <Environment preset="city" />
+            </>
           )}
         </Canvas>
       </div>
