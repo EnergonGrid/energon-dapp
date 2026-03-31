@@ -32,6 +32,8 @@ export default function Mint() {
 
   const [ownedCubeCount, setOwnedCubeCount] = useState(0);
 
+  const [viewportWidth, setViewportWidth] = useState(1280);
+
   const RO_RPC =
     Array.isArray(RPCS?.[MAINNET_CHAIN_ID]) && RPCS[MAINNET_CHAIN_ID].length
       ? RPCS[MAINNET_CHAIN_ID][0]
@@ -44,6 +46,10 @@ export default function Mint() {
   const chainOk = Number(chainId) === MAINNET_CHAIN_ID;
   const hasCube = ownedCubeCount > 0;
 
+  const isTablet = viewportWidth <= 980;
+  const isMobile = viewportWidth <= 768;
+  const isSmallMobile = viewportWidth <= 480;
+
   const shortAddr = (a) =>
     a ? `${a.slice(0, 6)}…${a.slice(a.length - 4)}` : "Address";
 
@@ -54,9 +60,19 @@ export default function Mint() {
 
   function Tile({ label, value, icon = null, right = null, valueStyle = null }) {
     return (
-      <div style={styles.tile}>
+      <div
+        style={{
+          ...styles.tile,
+          ...(isMobile ? styles.tileMobile : null),
+        }}
+      >
         <div style={styles.tileLabel}>{label}</div>
-        <div style={styles.tileValueRow}>
+        <div
+          style={{
+            ...styles.tileValueRow,
+            ...(isSmallMobile ? styles.tileValueRowSmall : null),
+          }}
+        >
           {icon ? <div style={styles.tileIconWrap}>{icon}</div> : null}
           <div style={{ ...styles.tileValue, ...(valueStyle || {}) }}>{value}</div>
           {right ? <div style={styles.tileRight}>{right}</div> : null}
@@ -302,6 +318,16 @@ export default function Mint() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const onResize = () => setViewportWidth(window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
     refreshRead();
 
     if (!window.ethereum) return;
@@ -410,18 +436,52 @@ export default function Mint() {
 
       <Nav />
 
-      <div style={styles.wrap}>
-        <div style={styles.hero}>
+      <div
+        style={{
+          ...styles.wrap,
+          ...(isTablet ? styles.wrapTablet : null),
+          ...(isMobile ? styles.wrapMobile : null),
+        }}
+      >
+        <div style={{ ...styles.hero, ...(isMobile ? styles.heroMobile : null) }}>
           <div style={styles.heroBeamLine} />
-          <h1 style={styles.h1}>MINT · ENERGON CUBE</h1>
-          <div style={styles.subheadLineWrap}>
-            <div style={styles.subheadWing} />
-            <div style={styles.sub}>Fixed Supply · Public Access Active</div>
-            <div style={styles.subheadWing} />
+          <h1
+            style={{
+              ...styles.h1,
+              ...(isTablet ? styles.h1Tablet : null),
+              ...(isMobile ? styles.h1Mobile : null),
+              ...(isSmallMobile ? styles.h1SmallMobile : null),
+            }}
+          >
+            MINT · ENERGON CUBE
+          </h1>
+
+          <div
+            style={{
+              ...styles.subheadLineWrap,
+              ...(isMobile ? styles.subheadLineWrapMobile : null),
+            }}
+          >
+            {!isMobile ? <div style={styles.subheadWing} /> : null}
+            <div
+              style={{
+                ...styles.sub,
+                ...(isMobile ? styles.subMobile : null),
+              }}
+            >
+              Fixed Supply · Public Access Active
+            </div>
+            {!isMobile ? <div style={styles.subheadWing} /> : null}
           </div>
         </div>
 
-        <div style={styles.statsGrid}>
+        <div
+          style={{
+            ...styles.statsGrid,
+            ...(isTablet ? styles.statsGridTablet : null),
+            ...(isMobile ? styles.statsGridMobile : null),
+          }}
+        >
           <Tile
             label="TOTAL MINTED"
             value={totalMinted}
@@ -441,7 +501,10 @@ export default function Mint() {
             right={
               <button
                 type="button"
-                style={styles.copyBtn}
+                style={{
+                  ...styles.copyBtn,
+                  ...(isMobile ? styles.copyBtnMobile : null),
+                }}
                 onClick={copyContract}
                 title={copied ? "Copied" : "Copy contract"}
               >
@@ -452,17 +515,59 @@ export default function Mint() {
           />
         </div>
 
-        <div style={styles.mainGrid}>
-          <div style={styles.mintCard}>
-            <div style={styles.mintCardTitle}>ACQUIRE 1 ENERGON CUBE</div>
-            <div style={styles.mintCardSub}>
+        <div
+          style={{
+            ...styles.mainGrid,
+            ...(isTablet ? styles.mainGridTablet : null),
+            ...(isMobile ? styles.mainGridMobile : null),
+          }}
+        >
+          <div
+            style={{
+              ...styles.mintCard,
+              ...(isMobile ? styles.mintCardMobile : null),
+            }}
+          >
+            <div
+              style={{
+                ...styles.mintCardTitle,
+                ...(isMobile ? styles.mintCardTitleMobile : null),
+              }}
+            >
+              ACQUIRE 1 ENERGON CUBE
+            </div>
+
+            <div
+              style={{
+                ...styles.mintCardSub,
+                ...(isMobile ? styles.mintCardSubMobile : null),
+              }}
+            >
               1 Cube per wallet · Quantity enforced by protocol
             </div>
 
-            <div style={styles.mintControlsRow}>
-              <div style={styles.qtyBlock}>
+            <div
+              style={{
+                ...styles.mintControlsRow,
+                ...(isTablet ? styles.mintControlsRowTablet : null),
+                ...(isMobile ? styles.mintControlsRowMobile : null),
+              }}
+            >
+              <div
+                style={{
+                  ...styles.qtyBlock,
+                  ...(isMobile ? styles.qtyBlockMobile : null),
+                }}
+              >
                 <div style={styles.qtyLabel}>QUANTITY</div>
-                <div style={{ ...styles.stepper, ...styles.stepperDisabled }}>
+
+                <div
+                  style={{
+                    ...styles.stepper,
+                    ...styles.stepperDisabled,
+                    ...(isMobile ? styles.stepperMobile : null),
+                  }}
+                >
                   <button
                     type="button"
                     style={{ ...styles.stepperBtn, ...styles.stepperBtnDisabled }}
@@ -473,11 +578,15 @@ export default function Mint() {
                   </button>
 
                   <input
-                    style={{ ...styles.qtyInput, ...styles.qtyInputDisabled }}
+                    style={{
+                      ...styles.qtyInput,
+                      ...styles.qtyInputDisabled,
+                      ...(isMobile ? styles.qtyInputMobile : null),
+                    }}
                     type="number"
                     min="1"
                     max="1"
-                    value={1}
+                    value={qty}
                     readOnly
                     disabled
                   />
@@ -493,9 +602,20 @@ export default function Mint() {
                 </div>
               </div>
 
-              <div style={styles.mintActionBlock}>
+              <div
+                style={{
+                  ...styles.mintActionBlock,
+                  ...(isMobile ? styles.mintActionBlockMobile : null),
+                }}
+              >
                 <div style={styles.addressLabel}>ADDRESS</div>
-                <div style={styles.addressPill}>
+
+                <div
+                  style={{
+                    ...styles.addressPill,
+                    ...(isMobile ? styles.addressPillMobile : null),
+                  }}
+                >
                   {account ? shortAddr(account) : "Address"}
                 </div>
 
@@ -504,6 +624,7 @@ export default function Mint() {
                   style={{
                     ...styles.mintActionBtn,
                     ...actionButtonStyle,
+                    ...(isMobile ? styles.mintActionBtnMobile : null),
                     opacity: isMinting ? 0.72 : 1,
                   }}
                   onClick={actionButtonClick}
@@ -512,7 +633,12 @@ export default function Mint() {
                   {actionButtonText}
                 </button>
 
-                <div style={styles.statusRow}>
+                <div
+                  style={{
+                    ...styles.statusRow,
+                    ...(isMobile ? styles.statusRowMobile : null),
+                  }}
+                >
                   <span style={{ ...styles.statusDot, ...statusDotStyle }} />
                   <span style={{ ...styles.statusInlineText, ...statusToneStyle }}>
                     Status: {status}
@@ -521,7 +647,12 @@ export default function Mint() {
               </div>
             </div>
 
-            <div style={styles.featureRow}>
+            <div
+              style={{
+                ...styles.featureRow,
+                ...(isMobile ? styles.featureRowMobile : null),
+              }}
+            >
               <div style={styles.featureItem}>
                 <span style={styles.featureIcon}>◉</span>
                 <span>Flare Mainnet (Chain ID: 14)</span>
@@ -537,16 +668,30 @@ export default function Mint() {
             </div>
           </div>
 
-          <div style={styles.cubeCard}>
+          <div
+            style={{
+              ...styles.cubeCard,
+              ...(isTablet ? styles.cubeCardTablet : null),
+              ...(isMobile ? styles.cubeCardMobile : null),
+            }}
+          >
             <img
               src={CUBE_IMAGE_URI}
               alt="Energon Cube"
-              style={styles.cubeImage}
+              style={{
+                ...styles.cubeImage,
+                ...(isMobile ? styles.cubeImageMobile : null),
+              }}
             />
           </div>
         </div>
 
-        <div style={styles.bottomStrip}>
+        <div
+          style={{
+            ...styles.bottomStrip,
+            ...(isMobile ? styles.bottomStripMobile : null),
+          }}
+        >
           <span style={styles.bottomStripIcon}>◉</span>
           <span>1 Energon Cube per wallet = Eligibility enforced by smart contract</span>
         </div>
@@ -641,9 +786,22 @@ const styles = {
     zIndex: 1,
   },
 
+  wrapTablet: {
+    maxWidth: 860,
+    padding: "8px 16px 40px",
+  },
+
+  wrapMobile: {
+    padding: "8px 14px 34px",
+  },
+
   hero: {
     textAlign: "center",
     marginBottom: 18,
+  },
+
+  heroMobile: {
+    marginBottom: 14,
   },
 
   heroBeamLine: {
@@ -668,12 +826,31 @@ const styles = {
       "0 0 8px rgba(255,255,255,0.04), 0 0 18px rgba(120,180,255,0.06)",
   },
 
+  h1Tablet: {
+    fontSize: 36,
+  },
+
+  h1Mobile: {
+    fontSize: 28,
+    lineHeight: 1.08,
+    letterSpacing: 0.08,
+  },
+
+  h1SmallMobile: {
+    fontSize: 24,
+  },
+
   subheadLineWrap: {
     marginTop: 12,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     gap: 16,
+  },
+
+  subheadLineWrapMobile: {
+    marginTop: 10,
+    gap: 8,
   },
 
   subheadWing: {
@@ -692,11 +869,26 @@ const styles = {
     whiteSpace: "nowrap",
   },
 
+  subMobile: {
+    fontSize: 12,
+    whiteSpace: "normal",
+    textAlign: "center",
+  },
+
   statsGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 12,
     marginBottom: 14,
+  },
+
+  statsGridTablet: {
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+  },
+
+  statsGridMobile: {
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 10,
   },
 
   tile: {
@@ -713,6 +905,11 @@ const styles = {
     WebkitBackdropFilter: "blur(14px)",
   },
 
+  tileMobile: {
+    padding: "14px 14px",
+    minHeight: 88,
+  },
+
   tileLabel: {
     fontSize: 12,
     letterSpacing: 1.6,
@@ -724,6 +921,11 @@ const styles = {
     display: "flex",
     alignItems: "center",
     gap: 10,
+  },
+
+  tileValueRowSmall: {
+    gap: 8,
+    alignItems: "flex-start",
   },
 
   tileIconWrap: {
@@ -786,11 +988,26 @@ const styles = {
       "0 10px 18px rgba(0,0,0,0.24), inset 0 0 0 1px rgba(255,255,255,0.02)",
   },
 
+  copyBtnMobile: {
+    width: 36,
+    height: 36,
+    fontSize: 14,
+  },
+
   mainGrid: {
     display: "grid",
     gridTemplateColumns: "minmax(0, 2fr) minmax(240px, 0.9fr)",
     gap: 14,
     alignItems: "stretch",
+  },
+
+  mainGridTablet: {
+    gridTemplateColumns: "1fr",
+  },
+
+  mainGridMobile: {
+    gridTemplateColumns: "1fr",
+    gap: 12,
   },
 
   mintCard: {
@@ -807,6 +1024,11 @@ const styles = {
     overflow: "hidden",
   },
 
+  mintCardMobile: {
+    padding: "18px 16px 16px",
+    borderRadius: 16,
+  },
+
   mintCardTitle: {
     fontSize: 22,
     fontWeight: 700,
@@ -815,10 +1037,22 @@ const styles = {
     marginBottom: 10,
   },
 
+  mintCardTitleMobile: {
+    fontSize: 18,
+    letterSpacing: 0.4,
+    lineHeight: 1.2,
+  },
+
   mintCardSub: {
     fontSize: 14,
     color: "rgba(214,226,255,0.72)",
     marginBottom: 20,
+  },
+
+  mintCardSubMobile: {
+    fontSize: 13,
+    lineHeight: 1.45,
+    marginBottom: 16,
   },
 
   mintControlsRow: {
@@ -830,11 +1064,28 @@ const styles = {
     borderBottom: "1px solid rgba(140,190,255,0.12)",
   },
 
+  mintControlsRowTablet: {
+    gridTemplateColumns: "1fr",
+    gap: 16,
+  },
+
+  mintControlsRowMobile: {
+    gridTemplateColumns: "1fr",
+    gap: 14,
+    paddingBottom: 14,
+  },
+
   qtyBlock: {
     display: "flex",
     alignItems: "center",
     gap: 16,
     flexWrap: "wrap",
+  },
+
+  qtyBlockMobile: {
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 10,
   },
 
   qtyLabel: {
@@ -853,6 +1104,11 @@ const styles = {
     background:
       "linear-gradient(180deg, rgba(10,18,38,0.92), rgba(8,14,30,0.98))",
     boxShadow: "0 10px 20px rgba(0,0,0,0.20)",
+  },
+
+  stepperMobile: {
+    width: "100%",
+    maxWidth: 220,
   },
 
   stepperDisabled: {
@@ -886,6 +1142,11 @@ const styles = {
     fontWeight: 700,
   },
 
+  qtyInputMobile: {
+    flex: 1,
+    width: 72,
+  },
+
   qtyInputDisabled: {
     cursor: "not-allowed",
     opacity: 1,
@@ -894,6 +1155,10 @@ const styles = {
   mintActionBlock: {
     display: "flex",
     flexDirection: "column",
+    gap: 10,
+  },
+
+  mintActionBlockMobile: {
     gap: 10,
   },
 
@@ -920,6 +1185,15 @@ const styles = {
       "0 10px 18px rgba(0,0,0,0.20), inset 0 0 0 1px rgba(255,255,255,0.02)",
   },
 
+  addressPillMobile: {
+    minHeight: 44,
+    width: "100%",
+    justifyContent: "center",
+    textAlign: "center",
+    fontSize: 13,
+    padding: "0 12px",
+  },
+
   mintActionBtn: {
     height: 52,
     borderRadius: 999,
@@ -929,6 +1203,12 @@ const styles = {
     cursor: "pointer",
     boxShadow:
       "0 0 18px rgba(62,154,255,0.16), inset 0 0 8px rgba(255,255,255,0.05)",
+  },
+
+  mintActionBtnMobile: {
+    width: "100%",
+    minHeight: 52,
+    fontSize: 16,
   },
 
   mintActionBtnDisconnected: {
@@ -971,6 +1251,11 @@ const styles = {
     paddingLeft: 4,
   },
 
+  statusRowMobile: {
+    paddingLeft: 0,
+    alignItems: "flex-start",
+  },
+
   statusDot: {
     width: 12,
     height: 12,
@@ -1001,6 +1286,7 @@ const styles = {
 
   statusInlineText: {
     fontSize: 14,
+    lineHeight: 1.4,
   },
 
   statusInlineDanger: {
@@ -1025,6 +1311,13 @@ const styles = {
     alignItems: "center",
     gap: 20,
     flexWrap: "wrap",
+  },
+
+  featureRowMobile: {
+    gap: 12,
+    marginTop: 14,
+    flexDirection: "column",
+    alignItems: "flex-start",
   },
 
   featureItem: {
@@ -1063,12 +1356,26 @@ const styles = {
     overflow: "hidden",
   },
 
+  cubeCardTablet: {
+    minHeight: 280,
+  },
+
+  cubeCardMobile: {
+    minHeight: 220,
+    padding: 10,
+    order: 2,
+  },
+
   cubeImage: {
     width: "100%",
     height: "100%",
     objectFit: "cover",
     borderRadius: 14,
     display: "block",
+  },
+
+  cubeImageMobile: {
+    objectFit: "cover",
   },
 
   bottomStrip: {
@@ -1090,6 +1397,16 @@ const styles = {
       "0 16px 30px rgba(0,0,0,0.26), inset 0 0 0 1px rgba(255,255,255,0.015)",
     textAlign: "center",
     flexWrap: "wrap",
+  },
+
+  bottomStripMobile: {
+    marginTop: 14,
+    minHeight: 0,
+    borderRadius: 18,
+    padding: "12px 14px",
+    fontSize: 13,
+    justifyContent: "center",
+    lineHeight: 1.45,
   },
 
   bottomStripIcon: {

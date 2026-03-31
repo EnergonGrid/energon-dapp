@@ -1,4 +1,3 @@
-// src/pages/dashboard.js
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
 import Nav from "../components/Nav";
@@ -39,6 +38,12 @@ const EON_ICON_URI =
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
 const THREE_MONTHS_SECONDS = 90 * 24 * 60 * 60;
+
+/**
+ * ✅ Responsive breakpoints
+ */
+const MOBILE_BREAKPOINT = 760;
+const SMALL_PHONE_BREAKPOINT = 430;
 
 // Minimal ABIs (dashboard only)
 const CONTROLLER_ABI = [
@@ -115,6 +120,8 @@ export default function Dashboard() {
   const [status, setStatus] = useState(
     "Ready. (Connect wallet for eligibility + balances)"
   );
+  const [isMobile, setIsMobile] = useState(false);
+  const [isSmallPhone, setIsSmallPhone] = useState(false);
 
   // hidden but still useful
   const [totalMinted, setTotalMinted] = useState("-");
@@ -129,7 +136,7 @@ export default function Dashboard() {
   const [secondsUntilNext, setSecondsUntilNext] = useState("-");
   const [tickAllowed, setTickAllowed] = useState(false);
 
-  // Protocol clock values (kept in code + shown in new tile)
+  // Protocol clock values
   const [launchTime, setLaunchTime] = useState(0);
   const [lastHalvingTime, setLastHalvingTime] = useState(0);
   const [halvingInterval, setHalvingInterval] = useState(0);
@@ -159,8 +166,20 @@ export default function Dashboard() {
   // latest connected wallet
   const accountRef = useRef("");
 
-  // previous burn amount for 3-blink trigger only on real updates
+  // previous burn amount for blink trigger
   const prevBurnedRef = useRef(null);
+
+  useEffect(() => {
+    function handleResize() {
+      const w = window.innerWidth;
+      setIsMobile(w <= MOBILE_BREAKPOINT);
+      setIsSmallPhone(w <= SMALL_PHONE_BREAKPOINT);
+    }
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     accountRef.current = account || "";
@@ -236,11 +255,11 @@ export default function Dashboard() {
     [nextHalvingTimestamp]
   );
 
-  function tile(label, value, extra = null, tileStyle = null) {
+  function tile(label, value, extra = null, tileStyle = null, valueStyle = null) {
     return (
       <div style={{ ...styles.tile, ...(tileStyle || {}) }}>
         <div style={styles.tileLabel}>{label}</div>
-        <div style={styles.tileValue}>{value}</div>
+        <div style={{ ...styles.tileValue, ...(valueStyle || {}) }}>{value}</div>
         {extra}
       </div>
     );
@@ -810,19 +829,23 @@ export default function Dashboard() {
   function tickBadge() {
     if (secondsUntilNext === "-") {
       return (
-        <span style={{ ...styles.badge, ...styles.badgeUnknown }}>UNKNOWN</span>
+        <span style={{ ...styles.badge, ...styles.badgeUnknown }}>
+          UNKNOWN
+        </span>
       );
     }
     if (tickAllowed) {
       if (alreadyTickedThisHeight(energonHeight)) {
         return (
           <span style={{ ...styles.badge, ...styles.badgeWait }}>
-            WAITING (height update)
+            WAITING
           </span>
         );
       }
       return (
-        <span style={{ ...styles.badge, ...styles.badgeOk }}>TICK ALLOWED</span>
+        <span style={{ ...styles.badge, ...styles.badgeOk }}>
+          TICK ALLOWED
+        </span>
       );
     }
     return (
@@ -831,6 +854,27 @@ export default function Dashboard() {
       </span>
     );
   }
+
+  const gridStyle = isMobile ? styles.grid2 : styles.grid3;
+
+  const wrapStyle = {
+    ...styles.wrap,
+    padding: isMobile ? "20px 14px 34px" : styles.wrap.padding,
+  };
+
+  const h1Style = {
+    ...styles.h1,
+    fontSize: isMobile ? (isSmallPhone ? 20 : 24) : 42,
+    letterSpacing: isMobile ? 0.08 : 0.12,
+  };
+
+  const btnRowStyle = {
+    ...styles.btnRow,
+    gap: isMobile ? 10 : 12,
+    marginBottom: isMobile ? 10 : 12,
+  };
+
+  const buttonBaseStyle = isMobile ? styles.btnMobile : null;
 
   return (
     <div style={styles.page}>
@@ -843,24 +887,35 @@ export default function Dashboard() {
 
       <Nav />
 
-      <div style={styles.wrap}>
+      <div style={wrapStyle}>
         <div style={styles.headerBlock}>
-          <h1 style={styles.h1}>ENERGON DASHBOARD</h1>
+          <h1 style={h1Style}>ENERGON DASHBOARD</h1>
           <div style={styles.headerGlowLine} />
         </div>
 
-        <div style={styles.btnRow}>
+        <div style={btnRowStyle}>
           {!account ? (
-            <button style={styles.btn} onClick={connectWallet} type="button">
+            <button
+              style={{ ...styles.btn, ...(buttonBaseStyle || {}) }}
+              onClick={connectWallet}
+              type="button"
+            >
               Connect Wallet
             </button>
           ) : (
-            <div style={styles.connectedPill}>Wallet: {shortAddr(account)}</div>
+            <div
+              style={{
+                ...styles.connectedPill,
+                ...(isMobile ? styles.connectedPillMobile : {}),
+              }}
+            >
+              Wallet: {shortAddr(account)}
+            </div>
           )}
 
           {!chainOk ? (
             <button
-              style={styles.btnSecondary}
+              style={{ ...styles.btnSecondary, ...(buttonBaseStyle || {}) }}
               onClick={switchToMainnet}
               type="button"
             >
@@ -871,6 +926,7 @@ export default function Dashboard() {
           <button
             style={{
               ...styles.btnPrimary,
+              ...(buttonBaseStyle || {}),
               opacity: !account || !chainOk ? 0.5 : 1,
             }}
             onClick={() => setAutoTickOn((v) => !v)}
@@ -883,6 +939,7 @@ export default function Dashboard() {
           <button
             style={{
               ...styles.btnPrimary,
+              ...(buttonBaseStyle || {}),
               opacity:
                 !account ||
                 !chainOk ||
@@ -914,50 +971,121 @@ export default function Dashboard() {
           </button>
         </div>
 
-        <div style={styles.subLine}>
-          <span style={{ opacity: 0.88 }}>
-            {backoffMs > 0 ? `Backoff: ${Math.ceil(backoffMs / 1000)}s` : ""}
-            {lastTickTx ? ` • Last tick tx: ${shortAddr(lastTickTx)}` : ""}
-          </span>
-        </div>
+        {!isMobile ? (
+          <div style={styles.subLine}>
+            <span style={{ opacity: 0.88 }}>
+              {backoffMs > 0 ? `Backoff: ${Math.ceil(backoffMs / 1000)}s` : ""}
+              {lastTickTx ? ` • Last tick tx: ${shortAddr(lastTickTx)}` : ""}
+            </span>
+          </div>
+        ) : null}
 
-        <div style={styles.grid3}>
-          {tile("Contract", shortAddr(CONTRACT_ADDRESS))}
+        <div style={gridStyle}>
           {tile(
-            "Chain ID",
-            chainOk ? `14 (OK ✅)` : `${chainId || "-"} (Wrong ❌)`
+            "Contract",
+            shortAddr(CONTRACT_ADDRESS),
+            null,
+            null,
+            isMobile ? styles.tileValueMobile : null
           )}
 
-          <div style={styles.tile}>
+          {tile(
+            "Chain ID",
+            chainOk ? `14 (OK ✅)` : `${chainId || "-"} (Wrong ❌)`,
+            null,
+            null,
+            isMobile ? styles.tileValueMobile : null
+          )}
+
+          <div
+            style={{
+              ...styles.tile,
+              ...(isMobile ? styles.tileWideMobile : {}),
+            }}
+          >
             <div style={styles.tileLabel}>Energon Token (EON)</div>
             <div style={styles.eonRow}>
               <img src={EON_ICON_URI} alt="EON" style={styles.eonIconImg} />
               <div>
-                <div style={styles.eonTitle}>EON</div>
-                <div style={styles.eonBalanceText}>Your Balance: {eonBal}</div>
+                <div
+                  style={{
+                    ...styles.eonTitle,
+                    ...(isMobile ? styles.eonTitleMobile : {}),
+                  }}
+                >
+                  EON
+                </div>
+                <div
+                  style={{
+                    ...styles.eonBalanceText,
+                    ...(isMobile ? styles.eonBalanceTextMobile : {}),
+                  }}
+                >
+                  Your Balance: {eonBal}
+                </div>
               </div>
             </div>
           </div>
 
-          {tile("Your Cube Balance", cubeBal)}
-          {tile("Eligibility", eligibleText)}
-          {tile("Energon Height", energonHeight)}
+          {tile(
+            "Your Cube Balance",
+            cubeBal,
+            null,
+            null,
+            isMobile ? styles.tileValueMobile : null
+          )}
+
+          {tile(
+            "Eligibility",
+            eligibleText,
+            null,
+            null,
+            isMobile ? styles.tileValueMobile : null
+          )}
+
+          {tile(
+            "Energon Height",
+            energonHeight,
+            null,
+            null,
+            isMobile ? styles.tileValueMobile : null
+          )}
 
           {tile(
             "Next Block (sec)",
             secondsUntilNext,
-            <div style={{ marginTop: 12 }}>{tickBadge()}</div>
+            <div style={{ marginTop: 12 }}>{tickBadge()}</div>,
+            null,
+            isMobile ? styles.tileValueMobile : null
           )}
 
-          <div style={{ ...styles.tile, ...styles.burnTile, ...burnTileVisual }}>
+          <div
+            style={{
+              ...styles.tile,
+              ...styles.burnTile,
+              ...burnTileVisual,
+              ...(isMobile ? styles.tileWideMobile : {}),
+            }}
+          >
             <div style={styles.tileLabel}>Burn Progress</div>
             <div style={styles.burnBarShell}>
               <div style={styles.burnBarHighlight} />
-              <div style={{ ...styles.burnBar, ...burnBarVisual }}>
+              <div
+                style={{
+                  ...styles.burnBar,
+                  ...burnBarVisual,
+                  ...(isMobile ? styles.burnBarMobile : {}),
+                }}
+              >
                 {burnProgressBar}
               </div>
             </div>
-            <div style={styles.burnMeta}>
+            <div
+              style={{
+                ...styles.burnMeta,
+                ...(isMobile ? styles.burnMetaMobile : {}),
+              }}
+            >
               {burnProgressPct} burned
               <br />
               Total Burned: {totalBurned}
@@ -966,10 +1094,21 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div style={{ ...styles.tile, ...clockVisual.tile }}>
+          <div
+            style={{
+              ...styles.tile,
+              ...clockVisual.tile,
+              ...(isMobile ? styles.tileWideMobile : {}),
+            }}
+          >
             <div style={styles.tileLabel}>Protocol Clock</div>
 
-            <div style={styles.clockMeta}>
+            <div
+              style={{
+                ...styles.clockMeta,
+                ...(isMobile ? styles.clockMetaMobile : {}),
+              }}
+            >
               Launch Date: {launchDateText}
             </div>
 
@@ -978,19 +1117,32 @@ export default function Dashboard() {
                 style={{
                   ...styles.clockCountdownPill,
                   ...clockVisual.pill,
+                  ...(isMobile ? styles.clockCountdownPillMobile : {}),
                 }}
               >
                 {nextHalvingCountdown}
               </div>
             </div>
 
-            <div style={styles.clockMeta}>
+            <div
+              style={{
+                ...styles.clockMeta,
+                ...(isMobile ? styles.clockMetaMobile : {}),
+              }}
+            >
               Next Halving Date: {nextHalvingDateText}
             </div>
           </div>
         </div>
 
-        <div style={styles.status}>Status: {status}</div>
+        <div
+          style={{
+            ...styles.status,
+            ...(isMobile ? styles.statusMobile : {}),
+          }}
+        >
+          Status: {status}
+        </div>
 
         {/* hidden debug */}
         {/* <div style={{ opacity: 0.2, fontSize: 10 }}>
@@ -1173,6 +1325,14 @@ const styles = {
     WebkitBackdropFilter: "blur(8px)",
   },
 
+  btnMobile: {
+    width: "calc(50% - 5px)",
+    minHeight: 46,
+    fontSize: 14,
+    padding: "11px 12px",
+    textAlign: "center",
+  },
+
   connectedPill: {
     background:
       "linear-gradient(180deg, rgba(18,36,80,0.76), rgba(10,20,48,0.94))",
@@ -1187,10 +1347,25 @@ const styles = {
     WebkitBackdropFilter: "blur(8px)",
   },
 
+  connectedPillMobile: {
+    width: "100%",
+    borderRadius: 14,
+    textAlign: "center",
+    fontSize: 13,
+    padding: "12px 14px",
+  },
+
   grid3: {
     display: "grid",
     gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: 14,
+    marginTop: 10,
+  },
+
+  grid2: {
+    display: "grid",
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gap: 12,
     marginTop: 10,
   },
 
@@ -1206,6 +1381,11 @@ const styles = {
     minHeight: 112,
     backdropFilter: "blur(14px)",
     WebkitBackdropFilter: "blur(14px)",
+  },
+
+  tileWideMobile: {
+    gridColumn: "span 2",
+    minHeight: "auto",
   },
 
   burnTile: {
@@ -1228,10 +1408,17 @@ const styles = {
     color: "#f2f7ff",
   },
 
+  tileValueMobile: {
+    fontSize: 16,
+    lineHeight: 1.28,
+  },
+
   burnBarShell: {
     position: "relative",
     display: "inline-block",
     padding: "2px 4px 4px 2px",
+    maxWidth: "100%",
+    overflow: "hidden",
   },
 
   burnBarHighlight: {
@@ -1259,11 +1446,22 @@ const styles = {
     whiteSpace: "pre",
   },
 
+  burnBarMobile: {
+    fontSize: 13,
+    letterSpacing: 0.55,
+    marginBottom: 8,
+  },
+
   burnMeta: {
     marginTop: 6,
     fontSize: 14,
     lineHeight: 1.55,
     color: "rgba(255,244,230,0.96)",
+  },
+
+  burnMetaMobile: {
+    fontSize: 13,
+    lineHeight: 1.45,
   },
 
   eonRow: {
@@ -1290,10 +1488,19 @@ const styles = {
     color: "#eef6ff",
   },
 
+  eonTitleMobile: {
+    fontSize: 17,
+  },
+
   eonBalanceText: {
     opacity: 0.92,
     marginTop: 4,
     color: "rgba(236,243,255,0.92)",
+  },
+
+  eonBalanceTextMobile: {
+    fontSize: 14,
+    lineHeight: 1.35,
   },
 
   clockMeta: {
@@ -1301,6 +1508,11 @@ const styles = {
     fontSize: 15,
     lineHeight: 1.7,
     color: "rgba(236,243,255,0.94)",
+  },
+
+  clockMetaMobile: {
+    fontSize: 13,
+    lineHeight: 1.45,
   },
 
   clockCountdownWrap: {
@@ -1317,10 +1529,23 @@ const styles = {
     borderRadius: 10,
   },
 
+  clockCountdownPillMobile: {
+    fontSize: 16,
+    padding: "8px 12px",
+    lineHeight: 1.2,
+  },
+
   status: {
     marginTop: 14,
     fontSize: 15,
     color: "rgba(234,241,255,0.90)",
+  },
+
+  statusMobile: {
+    fontSize: 14,
+    lineHeight: 1.45,
+    marginTop: 16,
+    paddingBottom: 18,
   },
 
   badge: {
@@ -1333,6 +1558,7 @@ const styles = {
     border: "1px solid rgba(255,255,255,0.16)",
     background: "rgba(255,255,255,0.06)",
     boxShadow: "0 0 14px rgba(255,255,255,0.04)",
+    maxWidth: "100%",
   },
 
   badgeOk: {

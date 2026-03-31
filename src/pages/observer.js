@@ -54,6 +54,8 @@ const SHOW_PROTOCOL_CLOCK = false;
 
 // --- LAYOUT SETTINGS ---
 const NARROW_BREAKPOINT = 1100;
+const MOBILE_BREAKPOINT = 768;
+const TABLET_BREAKPOINT = 980;
 const MAX_ATTRS = 10;
 
 const ATTR_PANEL_W = 420;
@@ -551,12 +553,21 @@ function ObserverInner() {
   const [loadingMeta, setLoadingMeta] = useState(false);
 
   const [isNarrow, setIsNarrow] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState(1280);
+
   useEffect(() => {
-    const onResize = () => setIsNarrow(window.innerWidth < NARROW_BREAKPOINT);
+    const onResize = () => {
+      const w = window.innerWidth;
+      setIsNarrow(w < NARROW_BREAKPOINT);
+      setViewportWidth(w);
+    };
     onResize();
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
+
+  const isMobile = viewportWidth < MOBILE_BREAKPOINT;
+  const isTablet = viewportWidth < TABLET_BREAKPOINT;
 
   useEffect(() => {
     const id = setInterval(() => {
@@ -856,15 +867,15 @@ function ObserverInner() {
       setBeat((b) => b + 1);
     },
   });
-  
-  // ✅ HEARTBEAT FALLBACK (NEW — FIXES YOUR ISSUE)
+
+  // ✅ HEARTBEAT FALLBACK
   useEffect(() => {
     if (!(isConnected && mode === "COHERENT" && isBound)) return;
-  
+
     const id = setInterval(() => {
       setBeat((b) => b + 1);
-    }, 2400); // ~block rhythm feel
-  
+    }, 2400);
+
     return () => clearInterval(id);
   }, [isConnected, mode, isBound]);
 
@@ -1095,6 +1106,23 @@ function ObserverInner() {
     return "—";
   }, [candidateTokenId]);
 
+  const cameraConfig = useMemo(() => {
+    if (viewMode === "GRID") {
+      if (isMobile) return { position: [0, 0, 16], fov: 72 };
+      if (isTablet) return { position: [0, 0, 14], fov: 62 };
+      return { position: [0, 0, 12], fov: 55 };
+    }
+
+    if (isMobile) return { position: [0, 0, 4.9], fov: 58 };
+    if (isTablet) return { position: [0, 0, 4.0], fov: 50 };
+    return { position: [0, 0, 3.2], fov: 45 };
+  }, [viewMode, isMobile, isTablet]);
+
+  const cameraKey = `${viewMode}-${isMobile ? "mobile" : isTablet ? "tablet" : "desktop"}`;
+
+  const canvasPaddingTop = isMobile ? 8 : 0;
+  const canvasPaddingBottom = isMobile ? 8 : 0;
+
   return (
     <div
       style={{
@@ -1113,7 +1141,17 @@ function ObserverInner() {
           pointerEvents: "none",
         }}
       >
-        <div style={{ pointerEvents: "auto" }}>
+        <div
+          style={{
+            pointerEvents: "auto",
+            position: "absolute",
+            left: isMobile ? 10 : 0,
+            top: isMobile ? 10 : 0,
+            transform: isMobile ? "scale(0.86)" : isTablet ? "scale(0.93)" : "scale(1)",
+            transformOrigin: "top left",
+            maxWidth: isMobile ? "calc(100vw - 20px)" : "none",
+          }}
+        >
           <ObserverHud
             hudOpen={hudOpen}
             setHudOpen={setHudOpen}
@@ -1149,7 +1187,7 @@ function ObserverInner() {
           />
         </div>
 
-        {hudOpen && SHOW_PROTOCOL_CLOCK && (
+        {hudOpen && SHOW_PROTOCOL_CLOCK && !isMobile && (
           <div
             style={{
               position: "absolute",
@@ -1199,7 +1237,7 @@ function ObserverInner() {
           />
         </div>
 
-        {halvingInfo && (
+        {halvingInfo && !isMobile && (
           <div
             style={{
               position: "absolute",
@@ -1234,32 +1272,33 @@ function ObserverInner() {
         style={{
           position: "absolute",
           inset: 0,
-          paddingBottom: bottomPad,
+          paddingBottom: bottomPad + canvasPaddingBottom,
+          paddingTop: canvasPaddingTop,
           boxSizing: "border-box",
           zIndex: 30,
           pointerEvents: "auto",
         }}
       >
         <Canvas
+          key={cameraKey}
           style={{ pointerEvents: "auto" }}
-          camera={
-            viewMode === "GRID"
-              ? { position: [0, 0, 12], fov: 55 }
-              : { position: [0, 0, 3.2], fov: 45 }
-          }
+          camera={cameraConfig}
+          dpr={isMobile ? [1, 1.5] : [1, 2]}
           gl={{ antialias: true, alpha: true }}
         >
           {viewMode === "GRID" ? (
-            <GridScene
-            coherent={isConnected && mode === "COHERENT"}
-            totalMinted={totalMintedN}
-            gridSeedKey={CUBE_ADDRESS}
-            connectedWalletAddress={address}
-            connectedCubeRarity={rarityTier}
-            connectedIsGenesis={isGenesis}
-          />
+            <group position={isMobile ? [0, -0.1, 0] : [0, 0, 0]}>
+              <GridScene
+                coherent={isConnected && mode === "COHERENT"}
+                totalMinted={totalMintedN}
+                gridSeedKey={CUBE_ADDRESS}
+                connectedWalletAddress={address}
+                connectedCubeRarity={rarityTier}
+                connectedIsGenesis={isGenesis}
+              />
+            </group>
           ) : (
-            <>
+            <group position={isMobile ? [0, -0.12, 0] : [0, 0, 0]}>
               <ambientLight intensity={0.25} />
               <directionalLight position={[3, 4, 2]} intensity={1.35} />
               <pointLight position={[-3, -2, 2]} intensity={0.7} />
@@ -1309,7 +1348,7 @@ function ObserverInner() {
               />
 
               <Environment preset="city" />
-            </>
+            </group>
           )}
         </Canvas>
       </div>
