@@ -37,7 +37,7 @@ const SPARK_MILESTONE = 100;
 
 // ✅ Protocol memory settings
 const MAX_SUPPLY = 1000000;
-const ENERGON_BLOCK_TIME_SECONDS = 600; // from controller
+const ENERGON_BLOCK_TIME_SECONDS = 600;
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
 // ✅ IMPORTANT: set this to the actual deployed constructor value if it ever changes
