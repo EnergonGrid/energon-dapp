@@ -1108,8 +1108,8 @@ function ObserverInner() {
 
   const cameraConfig = useMemo(() => {
     if (viewMode === "GRID") {
-      if (isMobile) return { position: [0, 0, 16], fov: 72 };
-      if (isTablet) return { position: [0, 0, 14], fov: 62 };
+      if (isMobile) return { position: [0, 0, 11.75], fov: 62 };
+      if (isTablet) return { position: [0, 0, 12.75], fov: 58 };
       return { position: [0, 0, 12], fov: 55 };
     }
 
@@ -1287,7 +1287,7 @@ function ObserverInner() {
           gl={{ antialias: true, alpha: true }}
         >
           {viewMode === "GRID" ? (
-            <group position={isMobile ? [0, -0.1, 0] : [0, 0, 0]}>
+            <group position={isMobile ? [0, 0.12, 0] : [0, 0, 0]}>
               <GridScene
                 coherent={isConnected && mode === "COHERENT"}
                 totalMinted={totalMintedN}

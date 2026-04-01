@@ -877,13 +877,18 @@ export default function Dashboard() {
   const buttonBaseStyle = isMobile ? styles.btnMobile : null;
 
   return (
-    <div style={styles.page}>
-      <div style={styles.bgGlowA} />
-      <div style={styles.bgGlowB} />
+    <div
+      style={{
+        ...styles.page,
+        ...(isMobile ? styles.pageMobile : null),
+      }}
+    >
+      {!isMobile ? <div style={styles.bgGlowA} /> : null}
+      {!isMobile ? <div style={styles.bgGlowB} /> : null}
       <div style={styles.bgStarsA} />
       <div style={styles.bgStarsB} />
-      <div style={styles.circuitLeft} />
-      <div style={styles.circuitRight} />
+      {!isMobile ? <div style={styles.circuitLeft} /> : null}
+      {!isMobile ? <div style={styles.circuitRight} /> : null}
 
       <Nav />
 
@@ -1163,6 +1168,10 @@ const styles = {
     color: "#fff",
     fontFamily:
       'ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji","Segoe UI Emoji"',
+  },
+
+  pageMobile: {
+    background: "#000000",
   },
 
   bgGlowA: {
