@@ -1110,7 +1110,7 @@ function ObserverInner() {
   const cameraConfig = useMemo(() => {
     if (viewMode === "GRID") {
       if (isMobile) return { position: [0, 0, 1.0], fov: 65 };
-      if (isTablet) return { position: [0, 0, 2.0], fov: 60 };
+      if (isTablet) return { position: [0, 0, 1.0], fov: 60 };
       return { position: [0, 0, 2.2], fov: 60 };
     }
 
