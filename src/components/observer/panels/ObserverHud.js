@@ -1,4 +1,5 @@
 import React from "react";
+import { useRouter } from "next/router";
 import StatusPill from "../ui/StatusPill";
 import TokenPanel from "./TokenPanel";
 
@@ -35,6 +36,8 @@ export default function ObserverHud({
   meta,
   shortAddr,
 }) {
+  const router = useRouter();
+
   const activeViewButtonStyle = {
     background: "rgba(255,210,90,0.18)",
     border: "1px solid rgba(255,210,90,0.55)",
@@ -77,29 +80,28 @@ export default function ObserverHud({
         pointerEvents: "auto",
       }}
     >
-      {/* ✅ pulse keyframes added */}
       <style>{`
-  @keyframes guardianViewPulse {
-    0% {
-      box-shadow:
-        0 0 0 1px rgba(255,210,90,0.18),
-        0 0 10px rgba(255,210,90,0.14),
-        inset 0 0 8px rgba(255,210,90,0.10);
-    }
-    50% {
-      box-shadow:
-        0 0 0 1px rgba(255,210,90,0.30),
-        0 0 22px rgba(255,210,90,0.34),
-        inset 0 0 18px rgba(255,210,90,0.22);
-    }
-    100% {
-      box-shadow:
-        0 0 0 1px rgba(255,210,90,0.18),
-        0 0 10px rgba(255,210,90,0.14),
-        inset 0 0 8px rgba(255,210,90,0.10);
-    }
-  }
-`}</style>
+        @keyframes guardianViewPulse {
+          0% {
+            box-shadow:
+              0 0 0 1px rgba(255,210,90,0.18),
+              0 0 10px rgba(255,210,90,0.14),
+              inset 0 0 8px rgba(255,210,90,0.10);
+          }
+          50% {
+            box-shadow:
+              0 0 0 1px rgba(255,210,90,0.30),
+              0 0 22px rgba(255,210,90,0.34),
+              inset 0 0 18px rgba(255,210,90,0.22);
+          }
+          100% {
+            box-shadow:
+              0 0 0 1px rgba(255,210,90,0.18),
+              0 0 10px rgba(255,210,90,0.14),
+              inset 0 0 8px rgba(255,210,90,0.10);
+          }
+        }
+      `}</style>
 
       <div>
         <button
@@ -201,6 +203,17 @@ export default function ObserverHud({
                 }}
               >
                 GRID
+              </button>
+
+              <button
+                onClick={() => router.push("/dashboard")}
+                title="Go to dashboard"
+                style={{
+                  ...viewButtonBase,
+                  ...inactiveViewButtonStyle,
+                }}
+              >
+                DASH
               </button>
             </div>
           </>

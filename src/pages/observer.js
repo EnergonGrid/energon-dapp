@@ -625,10 +625,10 @@ function ObserverInner() {
   const mode = !isConnected
     ? "DISCONNECTED"
     : cubeN === 0
-    ? "SILENT"
-    : cubeN === 1
-    ? "COHERENT"
-    : "FRACTURED";
+      ? "SILENT"
+      : cubeN === 1
+        ? "COHERENT"
+        : "FRACTURED";
 
   const tokenOfOwnerByIndex = useReadContract({
     abi: erc721Abi,
@@ -1105,11 +1105,11 @@ function ObserverInner() {
     return "—";
   }, [candidateTokenId]);
 
+  // ✅ GRID uses one stable camera only.
+  // ✅ GridScene.js is now the single source of truth for desktop/mobile grid sizing.
   const cameraConfig = useMemo(() => {
     if (viewMode === "GRID") {
-      if (isMobile) return { position: [0, 0, 4.45], fov: 49 };
-      if (isTablet) return { position: [0, 0, 8.2], fov: 54 };
-      return { position: [0, 0, 12], fov: 55 };
+      return { position: [0, 0, 2.2], fov: 60 };
     }
 
     if (isMobile) return { position: [0, 0, 4.9], fov: 58 };
@@ -1127,9 +1127,7 @@ function ObserverInner() {
       : 0;
 
   const canvasPaddingTop = isMobile ? 8 : 0;
-  const canvasPaddingBottom = isMobile
-    ? 8 + mobileGridExtraBottom
-    : 0;
+  const canvasPaddingBottom = isMobile ? 8 + mobileGridExtraBottom : 0;
 
   return (
     <div
@@ -1158,8 +1156,8 @@ function ObserverInner() {
             transform: isMobile
               ? "scale(0.86)"
               : isTablet
-              ? "scale(0.93)"
-              : "scale(1)",
+                ? "scale(0.93)"
+                : "scale(1)",
             transformOrigin: "top left",
             maxWidth: isMobile ? "calc(100vw - 20px)" : "none",
           }}
@@ -1227,7 +1225,9 @@ function ObserverInner() {
               {(halvingIntervalSec / SECONDS_PER_YEAR).toFixed(2)} years
             </div>
             <div>Next Halving In: {nextHalvingCountdownText}</div>
-            <div>Next Halving Date: {formatHalvingDate(nextHalvingTimestamp)}</div>
+            <div>
+              Next Halving Date: {formatHalvingDate(nextHalvingTimestamp)}
+            </div>
             <div>Reward / Block: {currentRewardPerBlockText} EON</div>
             <div>Energon Height: {currentHeight}</div>
           </div>
@@ -1270,11 +1270,15 @@ function ObserverInner() {
               pointerEvents: "none",
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Halving Memory</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              Halving Memory
+            </div>
             <div>Index: {halvingInfo.halvingIndex}</div>
             <div>Date: {formatHalvingDate(halvingInfo.halvingTimestamp)}</div>
             <div>Years From Launch: {halvingInfo.yearsFromLaunch}</div>
-            <div>Reward After: {formatEonWei(halvingInfo.rewardAfterWei)} EON</div>
+            <div>
+              Reward After: {formatEonWei(halvingInfo.rewardAfterWei)} EON
+            </div>
             <div>Est. Energon Height: {halvingInfo.estimatedEnergonHeight}</div>
             <div>
               Est. Rewards Released:{" "}
@@ -1303,16 +1307,7 @@ function ObserverInner() {
           gl={{ antialias: true, alpha: true }}
         >
           {viewMode === "GRID" ? (
-            <group
-              position={isMobile ? [0, 0.9, 0] : [0, 0, 0]}
-              scale={
-                isMobile
-                  ? [2.65, 2.65, 2.65]
-                  : isTablet
-                  ? [1.35, 1.35, 1.35]
-                  : [1, 1, 1]
-              }
-            >
+            <group>
               <GridScene
                 coherent={isConnected && mode === "COHERENT"}
                 totalMinted={totalMintedN}
@@ -1349,6 +1344,7 @@ function ObserverInner() {
                 totalMinted={totalMintedN}
                 maxSupply={MAX_SUPPLY}
                 halvingStage={currentHalvingStage}
+                scale={isMobile ? 1 : 2.15}
               />
 
               <OrbitalMemorySystem
