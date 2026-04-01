@@ -868,7 +868,6 @@ function ObserverInner() {
     },
   });
 
-  // ✅ HEARTBEAT FALLBACK
   useEffect(() => {
     if (!(isConnected && mode === "COHERENT" && isBound)) return;
 
@@ -1108,8 +1107,8 @@ function ObserverInner() {
 
   const cameraConfig = useMemo(() => {
     if (viewMode === "GRID") {
-      if (isMobile) return { position: [0, 0, 11.75], fov: 62 };
-      if (isTablet) return { position: [0, 0, 12.75], fov: 58 };
+      if (isMobile) return { position: [0, 0, 6.2], fov: 52 };
+      if (isTablet) return { position: [0, 0, 9.5], fov: 56 };
       return { position: [0, 0, 12], fov: 55 };
     }
 
@@ -1295,7 +1294,16 @@ function ObserverInner() {
           gl={{ antialias: true, alpha: true }}
         >
           {viewMode === "GRID" ? (
-            <group position={isMobile ? [0, 0.12, 0] : [0, 0, 0]}>
+            <group
+              position={isMobile ? [0, 0.2, 0] : [0, 0, 0]}
+              scale={
+                isMobile
+                  ? [1.9, 1.9, 1.9]
+                  : isTablet
+                  ? [1.25, 1.25, 1.25]
+                  : [1, 1, 1]
+              }
+            >
               <GridScene
                 coherent={isConnected && mode === "COHERENT"}
                 totalMinted={totalMintedN}
