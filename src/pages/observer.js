@@ -1147,7 +1147,11 @@ function ObserverInner() {
             position: "absolute",
             left: isMobile ? 10 : 0,
             top: isMobile ? 10 : 0,
-            transform: isMobile ? "scale(0.86)" : isTablet ? "scale(0.93)" : "scale(1)",
+            transform: isMobile
+              ? "scale(0.86)"
+              : isTablet
+              ? "scale(0.93)"
+              : "scale(1)",
             transformOrigin: "top left",
             maxWidth: isMobile ? "calc(100vw - 20px)" : "none",
           }}
@@ -1206,10 +1210,13 @@ function ObserverInner() {
               pointerEvents: "none",
             }}
           >
-            <div style={{ fontWeight: 700, marginBottom: 6 }}>Protocol Clock</div>
+            <div style={{ fontWeight: 700, marginBottom: 6 }}>
+              Protocol Clock
+            </div>
             <div>Launch: {formatHalvingDate(launchTimeSec)}</div>
             <div>
-              Halving Interval: {(halvingIntervalSec / SECONDS_PER_YEAR).toFixed(2)} years
+              Halving Interval:{" "}
+              {(halvingIntervalSec / SECONDS_PER_YEAR).toFixed(2)} years
             </div>
             <div>Next Halving In: {nextHalvingCountdownText}</div>
             <div>Next Halving Date: {formatHalvingDate(nextHalvingTimestamp)}</div>
@@ -1262,7 +1269,8 @@ function ObserverInner() {
             <div>Reward After: {formatEonWei(halvingInfo.rewardAfterWei)} EON</div>
             <div>Est. Energon Height: {halvingInfo.estimatedEnergonHeight}</div>
             <div>
-              Est. Rewards Released: {formatEonWei(halvingInfo.estimatedCumulativeRewardsWei)} EON
+              Est. Rewards Released:{" "}
+              {formatEonWei(halvingInfo.estimatedCumulativeRewardsWei)} EON
             </div>
           </div>
         )}
