@@ -22,11 +22,11 @@ const DESKTOP_GLOBE_RADIUS = 2.15;
 const MOBILE_GLOBE_RADIUS = 1.25;
 
 const DESKTOP_NODE_ALTITUDE = 0.075;
-const MOBILE_NODE_ALTITUDE = 0.055;
+const MOBILE_NODE_ALTITUDE = 0.075;
 
 // thick-shell depth so nodes can exist inside the globe body
 const DESKTOP_SHELL_DEPTH = 0.32;
-const MOBILE_SHELL_DEPTH = 0.14;
+const MOBILE_SHELL_DEPTH = 0.2;
 
 const DESKTOP_ACTIVE_DOT_BASE_SIZE = 10.5;
 const DESKTOP_ACTIVE_DOT_PULSE_SIZE = 7.2;
