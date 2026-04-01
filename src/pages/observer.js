@@ -1107,8 +1107,8 @@ function ObserverInner() {
 
   const cameraConfig = useMemo(() => {
     if (viewMode === "GRID") {
-      if (isMobile) return { position: [0, 0, 6.2], fov: 52 };
-      if (isTablet) return { position: [0, 0, 9.5], fov: 56 };
+      if (isMobile) return { position: [0, 0, 4.45], fov: 49 };
+      if (isTablet) return { position: [0, 0, 8.2], fov: 54 };
       return { position: [0, 0, 12], fov: 55 };
     }
 
@@ -1119,8 +1119,17 @@ function ObserverInner() {
 
   const cameraKey = `${viewMode}-${isMobile ? "mobile" : isTablet ? "tablet" : "desktop"}`;
 
+  const mobileGridExtraBottom =
+    isMobile && viewMode === "GRID"
+      ? canShowAttributes && attrsOpen
+        ? SHEET_H + 86
+        : 86
+      : 0;
+
   const canvasPaddingTop = isMobile ? 8 : 0;
-  const canvasPaddingBottom = isMobile ? 8 : 0;
+  const canvasPaddingBottom = isMobile
+    ? 8 + mobileGridExtraBottom
+    : 0;
 
   return (
     <div
@@ -1295,12 +1304,12 @@ function ObserverInner() {
         >
           {viewMode === "GRID" ? (
             <group
-              position={isMobile ? [0, 0.2, 0] : [0, 0, 0]}
+              position={isMobile ? [0, 0.9, 0] : [0, 0, 0]}
               scale={
                 isMobile
-                  ? [1.9, 1.9, 1.9]
+                  ? [2.65, 2.65, 2.65]
                   : isTablet
-                  ? [1.25, 1.25, 1.25]
+                  ? [1.35, 1.35, 1.35]
                   : [1, 1, 1]
               }
             >
