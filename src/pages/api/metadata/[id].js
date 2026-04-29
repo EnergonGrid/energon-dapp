@@ -2,15 +2,11 @@
 
 const MAX_SUPPLY = 1_000_000;
 
-// 🔒 Pinata image (same for all cubes — your current setup)
 const IMAGE_CID =
   "bafybeifigkjd7zwtthgkjnb7pvzdkoufbskr7kevswontsjcaeqbo542vu";
 
 const IMAGE_URL = `https://red-secret-dragonfly-529.mypinata.cloud/ipfs/${IMAGE_CID}`;
 
-// -----------------------------
-// Deterministic RNG (pure)
-// -----------------------------
 function mulberry32(a) {
   return function () {
     let t = (a += 0x6d2b79f5);
@@ -20,9 +16,6 @@ function mulberry32(a) {
   };
 }
 
-// -----------------------------
-// Trait pools (from your style)
-// -----------------------------
 const PLASMA_CORES = [
   "Flare Ember",
   "Azure Arc",
@@ -31,16 +24,8 @@ const PLASMA_CORES = [
   "Ion Drift",
 ];
 
-const BACKGROUNDS = [
-  "Black",
-  "Midnight",
-  "Void",
-  "Nebula",
-];
+const BACKGROUNDS = ["Black", "Midnight", "Void", "Nebula"];
 
-// -----------------------------
-// Rarity logic (deterministic)
-// -----------------------------
 function getRarity(rand) {
   const r = rand();
   if (r < 0.01) return "Mythic";
@@ -50,25 +35,19 @@ function getRarity(rand) {
   return "Common";
 }
 
-// -----------------------------
-// Build attributes
-// -----------------------------
 function buildAttributes(id) {
   const rand = mulberry32(id);
 
   const plasmaCore = PLASMA_CORES[Math.floor(rand() * PLASMA_CORES.length)];
   const background = BACKGROUNDS[Math.floor(rand() * BACKGROUNDS.length)];
-
   const energyOutput = Math.floor(rand() * 50) + 50;
   const powerConsumption = Math.floor(rand() * 60) + 30;
   const turbulence = Math.floor(rand() * 100);
   const overlaySeed = Math.floor(rand() * 100000);
-
   const density = Math.floor(rand() * 4) + 1;
 
   const layouts = ["Left", "Center", "Right"];
   const layout = layouts[Math.floor(rand() * layouts.length)];
-
   const rarity = getRarity(rand);
 
   return [
@@ -84,9 +63,6 @@ function buildAttributes(id) {
   ];
 }
 
-// -----------------------------
-// Genesis (token 1)
-// -----------------------------
 function genesisMetadata() {
   return {
     name: "Energon Genesis Cube #1 — The Big Bang",
@@ -108,9 +84,26 @@ function genesisMetadata() {
   };
 }
 
-// -----------------------------
-// API handler
-// -----------------------------
+function omegaMetadata() {
+  return {
+    name: "Energon Omega Cube #1000000 — The Final State",
+    description:
+      "This Omega Cube marks the terminal state of the Energon Grid. With the final cube assigned, the system reaches full distribution across one million nodes. No new cubes can exist beyond this point. The Grid is complete. From this moment forward, Energon operates in its fully realized form — a closed, deterministic energy system sustained by its Guardians.",
+    image: IMAGE_URL,
+    attributes: [
+      { trait_type: "Omega Type", value: "Final State" },
+      { trait_type: "Energon Height", value: "Terminal" },
+      { trait_type: "Energon Epoch", value: "Completion" },
+      { trait_type: "Supply State", value: "Max Supply Reached" },
+      { trait_type: "Grid Status", value: "Complete" },
+      { trait_type: "Clock Authority", value: "Energon Protocol" },
+      { trait_type: "Reward Eligibility Rule", value: "Exactly 1 Cube" },
+      { trait_type: "Scarcity Law", value: "Absolute" },
+      { trait_type: "Finality", value: "Immutable" },
+    ],
+  };
+}
+
 export default function handler(req, res) {
   const { id } = req.query;
 
@@ -124,23 +117,25 @@ export default function handler(req, res) {
     return res.status(404).json({ error: "Token not found" });
   }
 
-  if (tokenId === 1) {
-    return res.status(200).json(genesisMetadata());
-  }
-
-  const metadata = {
-    name: `Energon Cube #${tokenId}`,
-    description:
-      "Energon Cubes are live Core-reactor nodes — the one million beating hearts of the Energon Grid. Each cube manifests a distinct plasma signature while working in unison to fortify and expand the network's energy field. To hold a Cube is to become a Grid Guardian, entrusted with stabilizing the Plasma flow and shaping the future of decentralized Energon rewards.",
-    image: IMAGE_URL,
-    attributes: buildAttributes(tokenId),
-  };
-
   res.setHeader("Content-Type", "application/json");
   res.setHeader(
     "Cache-Control",
     "public, s-maxage=300, stale-while-revalidate=600"
   );
 
-  return res.status(200).json(metadata);
+  if (tokenId === 1) {
+    return res.status(200).json(genesisMetadata());
+  }
+
+  if (tokenId === MAX_SUPPLY) {
+    return res.status(200).json(omegaMetadata());
+  }
+
+  return res.status(200).json({
+    name: `Energon Cube #${tokenId}`,
+    description:
+      "Energon Cubes are live Core-reactor nodes — the one million beating hearts of the Energon Grid. Each cube manifests a distinct plasma signature while working in unison to fortify and expand the network's energy field. To hold a Cube is to become a Grid Guardian, entrusted with stabilizing the Plasma flow and shaping the future of decentralized Energon rewards.",
+    image: IMAGE_URL,
+    attributes: buildAttributes(tokenId),
+  });
 }
