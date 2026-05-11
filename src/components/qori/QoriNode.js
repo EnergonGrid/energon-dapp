@@ -17,6 +17,7 @@ export default function QoriNode() {
   const [thinking, setThinking] = useState(false);
   const [silent, setSilent] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [landingMode, setLandingMode] = useState(false);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -44,6 +45,17 @@ export default function QoriNode() {
 
     if (params.get("open") === "1") {
       setOpen(true);
+    }
+
+    if (params.get("mode") === "landing") {
+      setLandingMode(true);
+      setCtx((prev) => ({
+        ...prev,
+        walletConnected: false,
+        guardianState: "VISITOR",
+        cubeBalance: "-",
+        protocolEra: "GENESIS CYCLE",
+      }));
     }
   }, []);
 
@@ -75,6 +87,34 @@ export default function QoriNode() {
   }
 
   async function refreshLiveState({ speak = false } = {}) {
+    if (landingMode) {
+      const visitorCtx = {
+        walletConnected: false,
+        guardianState: "VISITOR",
+        cubeBalance: "-",
+        energonHeight: "PUBLIC",
+        tickState: "PUBLIC GUIDE",
+        burnState: "PUBLIC GUIDE",
+        halvingState: "ACTIVE CYCLE",
+        nextHalvingDate: "12/19/2029",
+        halvingCountdown: "",
+        protocolEra: "GENESIS CYCLE",
+      };
+
+      setCtx(visitorCtx);
+
+      if (speak) {
+        transmit(
+          "VISITOR MODE ACTIVE.\n\nQ.O.R.I is operating as a public guide.\nWallet and cube state are read inside the dApp Guardian interface.\n\n_",
+          32,
+          undefined,
+          "system"
+        );
+      }
+
+      return;
+    }
+
     try {
       const nextCtx = await readQoriLiveState();
       setCtx(nextCtx);
@@ -118,7 +158,7 @@ export default function QoriNode() {
       if (liveRef.current) clearInterval(liveRef.current);
       if (silentRef.current) clearTimeout(silentRef.current);
     };
-  }, []);
+  }, [landingMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -143,7 +183,7 @@ export default function QoriNode() {
     return () => {
       stopTyping(typingRef);
     };
-  }, [open]);
+  }, [open, landingMode]);
 
   useEffect(() => {
     if (!messageBoxRef.current) return;
@@ -249,6 +289,8 @@ export default function QoriNode() {
                   ? "1px solid rgba(255,80,80,0.55)"
                   : ctx.guardianState === "COHERENT"
                   ? "1px solid rgba(0,255,198,0.55)"
+                  : ctx.guardianState === "VISITOR"
+                  ? "1px solid rgba(255,207,107,0.50)"
                   : "1px solid rgba(45,170,255,0.55)",
               borderRadius: 24,
               boxShadow:
@@ -256,6 +298,8 @@ export default function QoriNode() {
                   ? "0 0 35px rgba(255,80,80,0.22), inset 0 0 20px rgba(255,80,80,0.08)"
                   : ctx.guardianState === "COHERENT"
                   ? "0 0 35px rgba(0,255,198,0.22), inset 0 0 20px rgba(0,255,198,0.08)"
+                  : ctx.guardianState === "VISITOR"
+                  ? "0 0 35px rgba(255,207,107,0.18), inset 0 0 20px rgba(255,207,107,0.06)"
                   : "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)",
               padding: 28,
               color: "#e8f6ff",
@@ -274,9 +318,14 @@ export default function QoriNode() {
                     ? "#ff7070"
                     : ctx.guardianState === "COHERENT"
                     ? "#00ffc6"
+                    : ctx.guardianState === "VISITOR"
+                    ? "#ffcf6b"
                     : "#1ec8ff",
                 letterSpacing: 8,
-                textShadow: "0 0 14px rgba(30,200,255,0.75)",
+                textShadow:
+                  ctx.guardianState === "VISITOR"
+                    ? "0 0 14px rgba(255,207,107,0.65)"
+                    : "0 0 14px rgba(30,200,255,0.75)",
               }}
             >
               Q.O.R.I
@@ -291,7 +340,7 @@ export default function QoriNode() {
                 opacity: 0.85,
               }}
             >
-              GUARDIAN INTERFACE
+              {landingMode ? "VISITOR INTERFACE" : "GUARDIAN INTERFACE"}
             </div>
 
             <div
