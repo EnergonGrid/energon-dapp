@@ -23,7 +23,7 @@ How may I assist your entry into the system?
 7. Open Observer
 8. Enter dApp
 
-Type a number or type the option name.`;
+Type a number or option name.`;
 
 const LANDING_PROMPTS = [
   "Select a path into the Energon Grid.",
@@ -58,12 +58,12 @@ function landingMenuWithPrompt() {
 7. Open Observer
 8. Enter dApp
 
-Type a number or type the option name.`;
+Type a number or option name.`;
 }
 
 function openLandingUrl(url) {
   if (typeof window === "undefined") return;
-  window.open(url, "_blank", "noopener,noreferrer");
+  window.location.href = url;
 }
 
 export default function QoriNode() {
@@ -102,9 +102,7 @@ export default function QoriNode() {
 
     const params = new URLSearchParams(window.location.search);
 
-    if (params.get("open") === "1") {
-      setOpen(true);
-    }
+    if (params.get("open") === "1") setOpen(true);
 
     if (params.get("mode") === "landing") {
       setLandingMode(true);
@@ -124,9 +122,7 @@ export default function QoriNode() {
   }, []);
 
   const visuals = getStateVisuals(ctx.guardianState, silent);
-
   const activeTextColor = displayTone === "echo" ? "#ffcf6b" : visuals.color;
-
   const activeTextShadow =
     displayTone === "echo"
       ? "0 0 10px rgba(255,207,107,0.75)"
@@ -134,12 +130,8 @@ export default function QoriNode() {
 
   function resetSilentTimer() {
     setSilent(false);
-
     if (silentRef.current) clearTimeout(silentRef.current);
-
-    silentRef.current = setTimeout(() => {
-      setSilent(true);
-    }, 240000);
+    silentRef.current = setTimeout(() => setSilent(true), 240000);
   }
 
   function transmit(text, speed = 32, onDone, tone = "system") {
@@ -149,12 +141,18 @@ export default function QoriNode() {
     typingRef.current = typeText(text, setDisplayText, speed, onDone);
   }
 
-  function answerLanding(text, tone = "system") {
+  function answerLanding(text, tone = "system", onDone) {
     transmit(
       text + "\n\n_",
       30,
       () => {
         setThinking(false);
+
+        if (typeof onDone === "function") {
+          onDone();
+          return;
+        }
+
         setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -171,13 +169,31 @@ export default function QoriNode() {
 
         if (action === "acquire") {
           answerLanding(
-            "Opening the EnergonCube acquisition path.\n\nRemember:\nOne wallet. One cube. One coherent Guardian state."
+            `Opening EnergonCube acquisition path...
+
+Prepare your wallet carefully.
+
+The system recognizes coherent state through exact ownership.
+
+One wallet.
+One cube.
+One Guardian.`,
+            "system",
+            () => openLandingUrl("https://energon-dapp.vercel.app/mint")
           );
-          setTimeout(() => openLandingUrl("https://energon-dapp.vercel.app"), 900);
           return;
         }
 
-        return;
+        if (action === "wallet") {
+          answerLanding(
+            `Opening wallet setup sequence...
+
+Bifrost is recommended for direct Guardian interaction on Flare.`,
+            "system",
+            () => openLandingUrl("https://energon-site.vercel.app/wallet-setup.html")
+          );
+          return;
+        }
       }
 
       if (q === "no" || q === "n") {
@@ -190,7 +206,13 @@ export default function QoriNode() {
       return;
     }
 
-    if (q === "1" || q.includes("acquire") || q.includes("energon cube") || q.includes("energoncube") || q.includes("cube")) {
+    if (
+      q === "1" ||
+      q.includes("acquire") ||
+      q.includes("energon cube") ||
+      q.includes("energoncube") ||
+      q.includes("cube")
+    ) {
       setPendingLandingAction("acquire");
       answerLanding(
         `The EnergonCube is the access key to the Energon Grid.
@@ -209,38 +231,40 @@ Type YES or NO.`
     }
 
     if (q === "2" || q.includes("setup wallet") || q.includes("wallet")) {
+      setPendingLandingAction("wallet");
       answerLanding(
-        `Wallet Setup prepares your point of entry.
+        `Wallet setup prepares your point of entry.
 
-A wallet connects you to Flare Mainnet and allows you to interact with the Energon system.
+A compatible wallet connects you to Flare Mainnet and allows you to interact with the Energon system.
 
-Opening Wallet Setup.`
+Bifrost is recommended for native Flare interaction and mobile Guardian access.
+
+Would you like to continue to Wallet Setup?
+
+Type YES or NO.`
       );
-      setTimeout(() => openLandingUrl("/wallet-setup.html"), 900);
       return;
     }
 
     if (q === "3" || q.includes("whitepaper") || q.includes("white paper")) {
       answerLanding(
-        `The whitepaper explains the full framework.
+        `Opening Energon whitepaper.
 
-It is the best place to understand the protocol structure, rules, and deterministic design.
-
-Opening Whitepaper.`
+The document defines the deterministic structure, Guardian logic, and protocol architecture.`,
+        "system",
+        () => openLandingUrl("https://energon-site.vercel.app/docs/energon-whitepaper.pdf")
       );
-      setTimeout(() => openLandingUrl("/docs/energon-whitepaper.pdf"), 900);
       return;
     }
 
     if (q === "4" || q === "emp" || q.includes("read emp")) {
       answerLanding(
-        `EMP is the Energon Management Protocol reference.
+        `Opening EMP framework.
 
-It is for deeper protocol understanding and advanced structure.
-
-Opening EMP.`
+EMP contains extended protocol mechanics and management-layer structure.`,
+        "system",
+        () => openLandingUrl("https://energon-site.vercel.app/docs/energon-emp.pdf")
       );
-      setTimeout(() => openLandingUrl("/docs/energon-emp.pdf"), 900);
       return;
     }
 
@@ -252,57 +276,64 @@ It does not rely on admins, hidden automation, or off-chain control.
 
 The system advances only when its rules are met.
 
-It is not pushed forward by intent.
-It is not adjusted by preference.
-It is read through state.`
+No hidden schedulers.
+No operator control.
+No off-chain automation.
+
+State determines progression.`
       );
       return;
     }
 
     if (q === "6" || q.includes("guardian")) {
       answerLanding(
-        `A Guardian is a wallet holding exactly one EnergonCube.
+        `A Guardian is a coherent participant recognized by the protocol.
+
+Coherence requires:
 
 One wallet.
-One cube.
-One coherent state.
+Exactly one EnergonCube.
 
-The protocol reads the wallet state directly.
+The protocol reads wallet state directly.
+
 Zero cubes does not qualify.
-Two or more cubes becomes fractured.`
+Two or more cubes becomes fractured.
+
+The system does not infer intent.
+It reads state.`
       );
       return;
     }
 
     if (q === "7" || q.includes("observer") || q.includes("open observer")) {
       answerLanding(
-        `The Observer allows you to view the Energon system through its visual state.
+        `Opening Observer interface.
 
-Opening Observer.`
+Observer reflects live protocol state and Guardian coherence.`,
+        "system",
+        () => openLandingUrl("https://energon-dapp.vercel.app/observer")
       );
-      setTimeout(() => openLandingUrl("https://energon-dapp.vercel.app/observer"), 900);
       return;
     }
 
     if (q === "8" || q.includes("enter dapp") || q.includes("dapp") || q.includes("app")) {
       answerLanding(
-        `Entering the Energon dApp.
+        `Opening Energon dApp.
 
-Inside the dApp, Q.O.R.I may read live wallet and Guardian state.`
+Wallet connection is required for Guardian interaction.`,
+        "system",
+        () => openLandingUrl("https://energon-dapp.vercel.app")
       );
-      setTimeout(() => openLandingUrl("https://energon-dapp.vercel.app"), 900);
       return;
     }
 
     if (q === "9") {
       answerLanding(
-        `Hidden signal detected.
+        `Hidden signal acknowledged.
 
-Q.O.R.I observes the ones who look beyond the visible menu.
+Q.O.R.I recognizes observers before Guardians recognize themselves.
 
 The Grid rewards attention, not noise.
-
-Return to available entry paths:
 
 ${landingMenuWithPrompt()}`,
         "echo"
@@ -375,21 +406,11 @@ Type a number or option name.`
       setCtx(nextCtx);
 
       if (speak) {
-        transmit(
-          getSystemObservation(nextCtx) + "\n\n_",
-          32,
-          undefined,
-          "system"
-        );
+        transmit(getSystemObservation(nextCtx) + "\n\n_", 32, undefined, "system");
       }
     } catch {
       if (speak) {
-        transmit(
-          "LIVE STATE READ FAILED.\nQ.O.R.I remains online.\n\n_",
-          32,
-          undefined,
-          "system"
-        );
+        transmit("LIVE STATE READ FAILED.\nQ.O.R.I remains online.\n\n_", 32, undefined, "system");
       }
     }
   }
@@ -425,17 +446,12 @@ Type a number or option name.`
       35,
       () => {
         refreshLiveState({ speak: true });
-
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 250);
+        setTimeout(() => inputRef.current?.focus(), 250);
       },
       "system"
     );
 
-    return () => {
-      stopTyping(typingRef);
-    };
+    return () => stopTyping(typingRef);
   }, [open, landingMode]);
 
   useEffect(() => {
@@ -461,23 +477,17 @@ Type a number or option name.`
       }
 
       const personalEcho = getPersonalEchoResponse(clean);
-
       let answer = personalEcho || getQoriResponse(clean, ctx);
       const tone = personalEcho ? "echo" : "system";
 
-      if (!personalEcho) {
-        answer = maybeAddSignalDegradation(answer);
-      }
+      if (!personalEcho) answer = maybeAddSignalDegradation(answer);
 
       transmit(
         answer + "\n\n_",
         30,
         () => {
           setThinking(false);
-
-          setTimeout(() => {
-            inputRef.current?.focus();
-          }, 50);
+          setTimeout(() => inputRef.current?.focus(), 50);
         },
         tone
       );
@@ -494,10 +504,7 @@ Type a number or option name.`
         onClick={() => {
           setOpen(true);
           resetSilentTimer();
-
-          setTimeout(() => {
-            inputRef.current?.focus();
-          }, 450);
+          setTimeout(() => inputRef.current?.focus(), 450);
         }}
         aria-label="Open Q.O.R.I"
         title={`Q.O.R.I: ${ctx.guardianState || "ONLINE"}`}
@@ -511,7 +518,7 @@ Type a number or option name.`
           borderRadius: "50%",
           border: visuals.border,
           background: hovered ? visuals.color : "rgba(47,212,255,0.08)",
-          boxShadow: hovered ? visuals.shadow : visuals.shadow,
+          boxShadow: visuals.shadow,
           transform: `scale(${pulse})`,
           transition: "all 2.2s ease-in-out",
           zIndex: 9999,
@@ -564,9 +571,7 @@ Type a number or option name.`
               fontFamily: "monospace",
             }}
           >
-            <button onClick={() => setOpen(false)} style={closeStyle}>
-              ×
-            </button>
+            <button onClick={() => setOpen(false)} style={closeStyle}>×</button>
 
             <div
               style={{
@@ -589,29 +594,12 @@ Type a number or option name.`
               Q.O.R.I
             </div>
 
-            <div
-              style={{
-                marginTop: 8,
-                marginBottom: 10,
-                fontSize: 11,
-                letterSpacing: 4,
-                opacity: 0.85,
-              }}
-            >
+            <div style={{ marginTop: 8, marginBottom: 10, fontSize: 11, letterSpacing: 4, opacity: 0.85 }}>
               {landingMode ? "VISITOR INTERFACE" : "GUARDIAN INTERFACE"}
             </div>
 
-            <div
-              style={{
-                marginBottom: 14,
-                fontSize: 11,
-                letterSpacing: 3,
-                color: visuals.color,
-                opacity: 0.9,
-              }}
-            >
-              STATE: {ctx.guardianState || "UNKNOWN"} · ERA:{" "}
-              {ctx.protocolEra || "UNKNOWN"}
+            <div style={{ marginBottom: 14, fontSize: 11, letterSpacing: 3, color: visuals.color, opacity: 0.9 }}>
+              STATE: {ctx.guardianState || "UNKNOWN"} · ERA: {ctx.protocolEra || "UNKNOWN"}
             </div>
 
             <div
@@ -640,14 +628,7 @@ Type a number or option name.`
               {displayText}
             </div>
 
-            <div
-              style={{
-                marginTop: 22,
-                fontSize: 13,
-                letterSpacing: 3,
-                fontWeight: 700,
-              }}
-            >
+            <div style={{ marginTop: 22, fontSize: 13, letterSpacing: 3, fontWeight: 700 }}>
               {silent ? "Q.O.R.I IS IDLE" : "Q.O.R.I IS LISTENING"}
             </div>
 
