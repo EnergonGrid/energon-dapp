@@ -63,6 +63,14 @@ Type a number or option name.`;
 
 function openLandingUrl(url) {
   if (typeof window === "undefined") return;
+
+  try {
+    if (window.top && window.top !== window.self) {
+      window.top.location.href = url;
+      return;
+    }
+  } catch {}
+
   window.location.href = url;
 }
 
@@ -73,6 +81,7 @@ export default function QoriNode() {
   const [displayText, setDisplayText] = useState("");
   const [displayTone, setDisplayTone] = useState("system");
   const [thinking, setThinking] = useState(false);
+  const [isTyping, setIsTyping] = useState(false);
   const [silent, setSilent] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [landingMode, setLandingMode] = useState(false);
@@ -138,7 +147,15 @@ export default function QoriNode() {
     stopTyping(typingRef);
     resetSilentTimer();
     setDisplayTone(tone);
-    typingRef.current = typeText(text, setDisplayText, speed, onDone);
+    setIsTyping(true);
+
+    typingRef.current = typeText(text, setDisplayText, speed, () => {
+      setIsTyping(false);
+
+      if (typeof onDone === "function") {
+        onDone();
+      }
+    });
   }
 
   function answerLanding(text, tone = "system", onDone) {
@@ -190,7 +207,10 @@ One Guardian.`,
 
 Bifrost is recommended for direct Guardian interaction on Flare.`,
             "system",
-            () => openLandingUrl("https://energon-site.vercel.app/wallet-setup.html")
+            () =>
+              openLandingUrl(
+                "https://energon-site.vercel.app/wallet-setup.html"
+              )
           );
           return;
         }
@@ -252,7 +272,10 @@ Type YES or NO.`
 
 The document defines the deterministic structure, Guardian logic, and protocol architecture.`,
         "system",
-        () => openLandingUrl("https://energon-site.vercel.app/docs/energon-whitepaper.pdf")
+        () =>
+          openLandingUrl(
+            "https://energon-site.vercel.app/docs/energon-whitepaper.pdf"
+          )
       );
       return;
     }
@@ -263,7 +286,10 @@ The document defines the deterministic structure, Guardian logic, and protocol a
 
 EMP contains extended protocol mechanics and management-layer structure.`,
         "system",
-        () => openLandingUrl("https://energon-site.vercel.app/docs/energon-emp.pdf")
+        () =>
+          openLandingUrl(
+            "https://energon-site.vercel.app/docs/energon-emp.pdf"
+          )
       );
       return;
     }
@@ -316,7 +342,12 @@ Observer reflects live protocol state and Guardian coherence.`,
       return;
     }
 
-    if (q === "8" || q.includes("enter dapp") || q.includes("dapp") || q.includes("app")) {
+    if (
+      q === "8" ||
+      q.includes("enter dapp") ||
+      q.includes("dapp") ||
+      q.includes("app")
+    ) {
       answerLanding(
         `Opening Energon dApp.
 
@@ -406,11 +437,21 @@ Type a number or option name.`
       setCtx(nextCtx);
 
       if (speak) {
-        transmit(getSystemObservation(nextCtx) + "\n\n_", 32, undefined, "system");
+        transmit(
+          getSystemObservation(nextCtx) + "\n\n_",
+          32,
+          undefined,
+          "system"
+        );
       }
     } catch {
       if (speak) {
-        transmit("LIVE STATE READ FAILED.\nQ.O.R.I remains online.\n\n_", 32, undefined, "system");
+        transmit(
+          "LIVE STATE READ FAILED.\nQ.O.R.I remains online.\n\n_",
+          32,
+          undefined,
+          "system"
+        );
       }
     }
   }
@@ -462,7 +503,7 @@ Type a number or option name.`
   function sendMessage() {
     const clean = input.trim();
 
-    if (!clean || thinking) return;
+    if (!clean || thinking || isTyping) return;
 
     setInput("");
     setThinking(true);
@@ -571,7 +612,9 @@ Type a number or option name.`
               fontFamily: "monospace",
             }}
           >
-            <button onClick={() => setOpen(false)} style={closeStyle}>×</button>
+            <button onClick={() => setOpen(false)} style={closeStyle}>
+              ×
+            </button>
 
             <div
               style={{
@@ -594,12 +637,29 @@ Type a number or option name.`
               Q.O.R.I
             </div>
 
-            <div style={{ marginTop: 8, marginBottom: 10, fontSize: 11, letterSpacing: 4, opacity: 0.85 }}>
+            <div
+              style={{
+                marginTop: 8,
+                marginBottom: 10,
+                fontSize: 11,
+                letterSpacing: 4,
+                opacity: 0.85,
+              }}
+            >
               {landingMode ? "VISITOR INTERFACE" : "GUARDIAN INTERFACE"}
             </div>
 
-            <div style={{ marginBottom: 14, fontSize: 11, letterSpacing: 3, color: visuals.color, opacity: 0.9 }}>
-              STATE: {ctx.guardianState || "UNKNOWN"} · ERA: {ctx.protocolEra || "UNKNOWN"}
+            <div
+              style={{
+                marginBottom: 14,
+                fontSize: 11,
+                letterSpacing: 3,
+                color: visuals.color,
+                opacity: 0.9,
+              }}
+            >
+              STATE: {ctx.guardianState || "UNKNOWN"} · ERA:{" "}
+              {ctx.protocolEra || "UNKNOWN"}
             </div>
 
             <div
@@ -628,8 +688,19 @@ Type a number or option name.`
               {displayText}
             </div>
 
-            <div style={{ marginTop: 22, fontSize: 13, letterSpacing: 3, fontWeight: 700 }}>
-              {silent ? "Q.O.R.I IS IDLE" : "Q.O.R.I IS LISTENING"}
+            <div
+              style={{
+                marginTop: 22,
+                fontSize: 13,
+                letterSpacing: 3,
+                fontWeight: 700,
+              }}
+            >
+              {isTyping
+                ? "Q.O.R.I IS TRANSMITTING"
+                : silent
+                ? "Q.O.R.I IS IDLE"
+                : "Q.O.R.I IS LISTENING"}
             </div>
 
             <div
@@ -657,12 +728,13 @@ Type a number or option name.`
                 borderRadius: 14,
                 overflow: "hidden",
                 background: "rgba(0,18,40,0.7)",
+                opacity: isTyping ? 0.58 : 1,
               }}
             >
               <input
                 ref={inputRef}
                 value={input}
-                disabled={thinking}
+                disabled={thinking || isTyping}
                 onFocus={resetSilentTimer}
                 onChange={(e) => {
                   resetSilentTimer();
@@ -672,8 +744,8 @@ Type a number or option name.`
                   if (e.key === "Enter") sendMessage();
                 }}
                 placeholder={
-                  thinking
-                    ? "Transmitting..."
+                  thinking || isTyping
+                    ? "Q.O.R.I transmitting..."
                     : landingMode
                     ? "Type 1-8 or ask Q.O.R.I..."
                     : "Ask Q.O.R.I..."
@@ -687,13 +759,13 @@ Type a number or option name.`
                   color: "#fff",
                   fontSize: 15,
                   fontFamily: "monospace",
-                  opacity: thinking ? 0.65 : 1,
+                  opacity: thinking || isTyping ? 0.65 : 1,
                 }}
               />
 
               <button
                 onClick={sendMessage}
-                disabled={thinking}
+                disabled={thinking || isTyping}
                 style={{
                   width: 54,
                   height: 52,
@@ -701,8 +773,8 @@ Type a number or option name.`
                   background: "rgba(0,120,255,0.18)",
                   color: "#39d7ff",
                   fontSize: 24,
-                  cursor: thinking ? "not-allowed" : "pointer",
-                  opacity: thinking ? 0.55 : 1,
+                  cursor: thinking || isTyping ? "not-allowed" : "pointer",
+                  opacity: thinking || isTyping ? 0.55 : 1,
                 }}
               >
                 ↗
