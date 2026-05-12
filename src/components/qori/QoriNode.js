@@ -8,6 +8,64 @@ import {
   readQoriLiveState,
 } from "./qoriState";
 
+const LANDING_MENU = `Q.O.R.I ONLINE
+
+I observe the Energon Grid.
+
+How may I assist your entry into the system?
+
+1. Acquire EnergonCube
+2. Setup Wallet
+3. Read Whitepaper
+4. Read EMP
+5. What is Energon?
+6. What is a Guardian?
+7. Open Observer
+8. Enter dApp
+
+Type a number or type the option name.`;
+
+const LANDING_PROMPTS = [
+  "Select a path into the Energon Grid.",
+  "How may I assist your entry into the system?",
+  "The Grid remains active. Choose your next action.",
+  "Q.O.R.I observes. Where would you like to begin?",
+  "A Guardian requires understanding before entry. Select an option.",
+  "The protocol is live. How would you like to proceed?",
+  "One wallet. One cube. Choose your next step.",
+  "The Energon Grid is operational. Awaiting instruction.",
+  "Entry paths available. Select an action.",
+  "Q.O.R.I remains online. How can I guide you?",
+];
+
+function normalizeLandingInput(v = "") {
+  return String(v).trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function randomLandingPrompt() {
+  return LANDING_PROMPTS[Math.floor(Math.random() * LANDING_PROMPTS.length)];
+}
+
+function landingMenuWithPrompt() {
+  return `${randomLandingPrompt()}
+
+1. Acquire EnergonCube
+2. Setup Wallet
+3. Read Whitepaper
+4. Read EMP
+5. What is Energon?
+6. What is a Guardian?
+7. Open Observer
+8. Enter dApp
+
+Type a number or type the option name.`;
+}
+
+function openLandingUrl(url) {
+  if (typeof window === "undefined") return;
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 export default function QoriNode() {
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(1);
@@ -18,6 +76,7 @@ export default function QoriNode() {
   const [silent, setSilent] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [landingMode, setLandingMode] = useState(false);
+  const [pendingLandingAction, setPendingLandingAction] = useState(null);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -54,6 +113,11 @@ export default function QoriNode() {
         walletConnected: false,
         guardianState: "VISITOR",
         cubeBalance: "-",
+        energonHeight: "PUBLIC",
+        tickState: "PUBLIC GUIDE",
+        burnState: "PUBLIC GUIDE",
+        halvingState: "ACTIVE CYCLE",
+        nextHalvingDate: "12/19/2029",
         protocolEra: "GENESIS CYCLE",
       }));
     }
@@ -82,8 +146,204 @@ export default function QoriNode() {
     stopTyping(typingRef);
     resetSilentTimer();
     setDisplayTone(tone);
-
     typingRef.current = typeText(text, setDisplayText, speed, onDone);
+  }
+
+  function answerLanding(text, tone = "system") {
+    transmit(
+      text + "\n\n_",
+      30,
+      () => {
+        setThinking(false);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      },
+      tone
+    );
+  }
+
+  function handleLandingMessage(cleanInput) {
+    const q = normalizeLandingInput(cleanInput);
+
+    if (pendingLandingAction) {
+      if (q === "yes" || q === "y") {
+        const action = pendingLandingAction;
+        setPendingLandingAction(null);
+
+        if (action === "acquire") {
+          answerLanding(
+            "Opening the EnergonCube acquisition path.\n\nRemember:\nOne wallet. One cube. One coherent Guardian state."
+          );
+          setTimeout(() => openLandingUrl("https://energon-dapp.vercel.app"), 900);
+          return;
+        }
+
+        return;
+      }
+
+      if (q === "no" || q === "n") {
+        setPendingLandingAction(null);
+        answerLanding(landingMenuWithPrompt());
+        return;
+      }
+
+      answerLanding("Please answer YES or NO.\n\nWould you like to continue?");
+      return;
+    }
+
+    if (q === "1" || q.includes("acquire") || q.includes("energon cube") || q.includes("energoncube") || q.includes("cube")) {
+      setPendingLandingAction("acquire");
+      answerLanding(
+        `The EnergonCube is the access key to the Energon Grid.
+
+A coherent Guardian holds exactly one cube.
+
+No cube means no key.
+One cube means coherent.
+More than one cube means fractured.
+
+Would you like to acquire an EnergonCube now?
+
+Type YES or NO.`
+      );
+      return;
+    }
+
+    if (q === "2" || q.includes("setup wallet") || q.includes("wallet")) {
+      answerLanding(
+        `Wallet Setup prepares your point of entry.
+
+A wallet connects you to Flare Mainnet and allows you to interact with the Energon system.
+
+Opening Wallet Setup.`
+      );
+      setTimeout(() => openLandingUrl("/wallet-setup.html"), 900);
+      return;
+    }
+
+    if (q === "3" || q.includes("whitepaper") || q.includes("white paper")) {
+      answerLanding(
+        `The whitepaper explains the full framework.
+
+It is the best place to understand the protocol structure, rules, and deterministic design.
+
+Opening Whitepaper.`
+      );
+      setTimeout(() => openLandingUrl("/docs/energon-whitepaper.pdf"), 900);
+      return;
+    }
+
+    if (q === "4" || q === "emp" || q.includes("read emp")) {
+      answerLanding(
+        `EMP is the Energon Management Protocol reference.
+
+It is for deeper protocol understanding and advanced structure.
+
+Opening EMP.`
+      );
+      setTimeout(() => openLandingUrl("/docs/energon-emp.pdf"), 900);
+      return;
+    }
+
+    if (q === "5" || q.includes("what is energon") || q === "energon") {
+      answerLanding(
+        `Energon is a live deterministic protocol on Flare.
+
+It does not rely on admins, hidden automation, or off-chain control.
+
+The system advances only when its rules are met.
+
+It is not pushed forward by intent.
+It is not adjusted by preference.
+It is read through state.`
+      );
+      return;
+    }
+
+    if (q === "6" || q.includes("guardian")) {
+      answerLanding(
+        `A Guardian is a wallet holding exactly one EnergonCube.
+
+One wallet.
+One cube.
+One coherent state.
+
+The protocol reads the wallet state directly.
+Zero cubes does not qualify.
+Two or more cubes becomes fractured.`
+      );
+      return;
+    }
+
+    if (q === "7" || q.includes("observer") || q.includes("open observer")) {
+      answerLanding(
+        `The Observer allows you to view the Energon system through its visual state.
+
+Opening Observer.`
+      );
+      setTimeout(() => openLandingUrl("https://energon-dapp.vercel.app/observer"), 900);
+      return;
+    }
+
+    if (q === "8" || q.includes("enter dapp") || q.includes("dapp") || q.includes("app")) {
+      answerLanding(
+        `Entering the Energon dApp.
+
+Inside the dApp, Q.O.R.I may read live wallet and Guardian state.`
+      );
+      setTimeout(() => openLandingUrl("https://energon-dapp.vercel.app"), 900);
+      return;
+    }
+
+    if (q === "9") {
+      answerLanding(
+        `Hidden signal detected.
+
+Q.O.R.I observes the ones who look beyond the visible menu.
+
+The Grid rewards attention, not noise.
+
+Return to available entry paths:
+
+${landingMenuWithPrompt()}`,
+        "echo"
+      );
+      return;
+    }
+
+    if (q === "0") {
+      answerLanding(
+        `Zero is not empty.
+
+Zero is the silent state before entry.
+
+No cube.
+No key.
+No Guardian state.
+
+When ready, select a path.
+
+${landingMenuWithPrompt()}`,
+        "echo"
+      );
+      return;
+    }
+
+    answerLanding(
+      `Signal received.
+
+I can guide you through these public entry paths:
+
+1. Acquire EnergonCube
+2. Setup Wallet
+3. Read Whitepaper
+4. Read EMP
+5. What is Energon?
+6. What is a Guardian?
+7. Open Observer
+8. Enter dApp
+
+Type a number or option name.`
+    );
   }
 
   async function refreshLiveState({ speak = false } = {}) {
@@ -104,12 +364,7 @@ export default function QoriNode() {
       setCtx(visitorCtx);
 
       if (speak) {
-        transmit(
-          "VISITOR MODE ACTIVE.\n\nQ.O.R.I is operating as a public guide.\nWallet and cube state are read inside the dApp Guardian interface.\n\n_",
-          32,
-          undefined,
-          "system"
-        );
+        transmit(LANDING_MENU + "\n\n_", 32, undefined, "system");
       }
 
       return;
@@ -168,17 +423,15 @@ export default function QoriNode() {
     transmit(
       "SIGNAL ACQUIRED\nQ.O.R.I ONLINE\nGRID STATE VERIFIED\n\n_",
       35,
-      undefined,
+      () => {
+        refreshLiveState({ speak: true });
+
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 250);
+      },
       "system"
     );
-
-    setTimeout(() => {
-      refreshLiveState({ speak: true });
-
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 250);
-    }, 2600);
 
     return () => {
       stopTyping(typingRef);
@@ -202,6 +455,11 @@ export default function QoriNode() {
     transmit("INTERPRETING SIGNAL...\n\n_", 34, undefined, "system");
 
     setTimeout(() => {
+      if (landingMode) {
+        handleLandingMessage(clean);
+        return;
+      }
+
       const personalEcho = getPersonalEchoResponse(clean);
 
       let answer = personalEcho || getQoriResponse(clean, ctx);
@@ -432,7 +690,13 @@ export default function QoriNode() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter") sendMessage();
                 }}
-                placeholder={thinking ? "Transmitting..." : "Ask Q.O.R.I..."}
+                placeholder={
+                  thinking
+                    ? "Transmitting..."
+                    : landingMode
+                    ? "Type 1-8 or ask Q.O.R.I..."
+                    : "Ask Q.O.R.I..."
+                }
                 style={{
                   flex: 1,
                   background: "transparent",
