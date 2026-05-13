@@ -121,6 +121,11 @@ export async function readQoriLiveState() {
       } catch {}
 
       try {
+        const remaining = await controller.burnPoolRemaining();
+        baseCtx.burnState = `${remaining.toString()} remaining`;
+      } catch {}
+
+      try {
         const lastHalving = await controller.lastHalvingTime();
         const interval = await controller.halvingInterval();
 
@@ -140,12 +145,12 @@ export async function readQoriLiveState() {
       return baseCtx;
     }
 
-    const browserProvider = new ethers.BrowserProvider(window.ethereum);
-
     let accounts = [];
 
     try {
-      accounts = await browserProvider.send("eth_accounts", []);
+      accounts = await window.ethereum.request({
+        method: "eth_accounts",
+      });
     } catch {}
 
     const addr = accounts?.[0] || "";
@@ -157,25 +162,7 @@ export async function readQoriLiveState() {
     baseCtx.walletConnected = true;
 
     try {
-      const net = await browserProvider.getNetwork();
-
-      if (Number(net.chainId) !== MAINNET_CHAIN_ID) {
-        return {
-          ...baseCtx,
-          guardianState: "WRONG NETWORK",
-          cubeBalance: "-",
-        };
-      }
-    } catch {}
-
-    try {
-      const cubeWithWalletProvider = new ethers.Contract(
-        CONTRACT_ADDRESS,
-        ABI,
-        browserProvider
-      );
-
-      const bal = await cubeWithWalletProvider.balanceOf(addr);
+      const bal = await cube.balanceOf(addr);
       const n = Number(bal.toString());
 
       baseCtx.cubeBalance = String(n);
@@ -204,6 +191,8 @@ State: ${ctx.guardianState || "UNKNOWN"}
 Cube Balance: ${ctx.cubeBalance || "-"}
 Energon Height: ${ctx.energonHeight || "UNKNOWN"}
 Tick State: ${ctx.tickState || "UNKNOWN"}
+Burn State: ${ctx.burnState || "UNKNOWN"}
+Halving State: ${ctx.halvingState || "UNKNOWN"}
 Era: ${ctx.protocolEra || "GENESIS CYCLE"}
 
 Q.O.R.I observes.
