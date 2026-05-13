@@ -65,6 +65,19 @@ How may I assist your entry into the system?
 
 Type a number or option name.`;
 
+const COHERENT_HELP_MENU = `Q.O.R.I can assist with:
+
+1. System Status
+2. Guardian State
+3. Energon Height
+4. Cube Balance
+5. Tick State
+6. Burn State
+7. Halving Cycle
+8. Protocol Era
+
+Type a number or ask directly.`;
+
 function normalizeLandingInput(v = "") {
   return String(v).trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -226,6 +239,18 @@ export default function QoriNode() {
           scheduleReturnToMenu(10000);
         }
 
+        setTimeout(() => inputRef.current?.focus(), 50);
+      },
+      tone
+    );
+  }
+
+  function answerLive(text, tone = "system") {
+    transmit(
+      text + "\n\n_",
+      30,
+      () => {
+        setThinking(false);
         setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -418,26 +443,25 @@ It reads state.`
     ) {
       answerLanding(
         `Q.O.R.I stands for:
-    
-    Quantum Overwatch Real-time Interface.
-    
-    Q.O.R.I observes the Energon Grid in real-time.
-    
-    It does not control the protocol.
-    
-    It watches.
-    It reflects.
-    It guides.
-    
-    On the public interface,
-    Q.O.R.I assists visitors entering the system.
-    
-    Inside the Guardian interface,
-    Q.O.R.I observes live protocol state directly from Flare.`
+
+Quantum Overwatch Real-time Interface.
+
+Q.O.R.I observes the Energon Grid in real-time.
+
+It does not control the protocol.
+
+It watches.
+It reflects.
+It guides.
+
+On the public interface,
+Q.O.R.I assists visitors entering the system.
+
+Inside the Guardian interface,
+Q.O.R.I observes live protocol state directly from Flare.`
       );
       return;
     }
-    
 
     if (
       q === "8" ||
@@ -512,6 +536,175 @@ I can guide you through these public entry paths:
 
 Type a number or option name.`
     );
+  }
+
+  function handleCoherentMessage(cleanInput) {
+    const q = normalizeLandingInput(cleanInput);
+
+    if (
+      q === "help" ||
+      q === "menu" ||
+      q === "options" ||
+      q.includes("what can you answer") ||
+      q.includes("what can you do")
+    ) {
+      answerLive(COHERENT_HELP_MENU);
+      return true;
+    }
+
+    if (q === "1" || q.includes("system status") || q.includes("status")) {
+      answerLive(
+        `SYSTEM STATUS
+
+Guardian State: ${ctx.guardianState || "UNKNOWN"}
+Cube Balance: ${ctx.cubeBalance || "-"}
+Energon Height: ${ctx.energonHeight || "UNKNOWN"}
+Tick State: ${ctx.tickState || "UNKNOWN"}
+Burn State: ${ctx.burnState || "UNKNOWN"}
+Halving State: ${ctx.halvingState || "UNKNOWN"}
+Protocol Era: ${ctx.protocolEra || "UNKNOWN"}
+
+Q.O.R.I observes.
+Q.O.R.I does not control.`
+      );
+      return true;
+    }
+
+    if (q === "2" || q.includes("guardian state") || q.includes("coherent")) {
+      answerLive(
+        `GUARDIAN STATE
+
+Current State: ${ctx.guardianState || "UNKNOWN"}
+
+COHERENT means the connected wallet holds exactly one EnergonCube.
+
+SILENT means no cube is detected.
+
+FRACTURED means more than one cube is detected.
+
+One wallet.
+One cube.
+One coherent Guardian state.`
+      );
+      return true;
+    }
+
+    if (
+      q === "3" ||
+      q.includes("energon height") ||
+      q.includes("height")
+    ) {
+      answerLive(
+        `ENERGON HEIGHT
+
+Current Height: ${ctx.energonHeight || "UNKNOWN"}
+
+Energon Height represents deterministic protocol progression.
+
+The system advances only when state conditions are met.`
+      );
+      return true;
+    }
+
+    if (
+      q === "4" ||
+      q.includes("cube balance") ||
+      q.includes("cube count") ||
+      q.includes("balance")
+    ) {
+      answerLive(
+        `CUBE BALANCE
+
+Detected Balance: ${ctx.cubeBalance || "-"}
+
+The coherent threshold is exact.
+
+0 cubes: silent.
+1 cube: coherent.
+2 or more cubes: fractured.`
+      );
+      return true;
+    }
+
+    if (q === "5" || q.includes("tick state") || q.includes("tick")) {
+      answerLive(
+        `TICK STATE
+
+Current Tick State: ${ctx.tickState || "UNKNOWN"}
+
+Tick activity reflects whether the protocol state can advance under current conditions.
+
+Q.O.R.I can observe this state.
+Q.O.R.I cannot force it.`
+      );
+      return true;
+    }
+
+    if (q === "6" || q.includes("burn state") || q.includes("burn")) {
+      answerLive(
+        `BURN STATE
+
+Current Burn State: ${ctx.burnState || "UNKNOWN"}
+
+Burn mechanics are part of the protocol's deterministic structure.
+
+They are observed from state.
+They are not controlled by the interface.`
+      );
+      return true;
+    }
+
+    if (
+      q === "7" ||
+      q.includes("halving cycle") ||
+      q.includes("halving")
+    ) {
+      answerLive(
+        `HALVING CYCLE
+
+Current Halving State: ${ctx.halvingState || "UNKNOWN"}
+Next Halving Date: ${ctx.nextHalvingDate || "UNKNOWN"}
+Countdown: ${ctx.halvingCountdown || "UNKNOWN"}
+
+Energon moves through long-form protocol cycles.
+
+The cycle does not adapt to hype.
+It follows rule.`
+      );
+      return true;
+    }
+
+    if (
+      q === "8" ||
+      q.includes("protocol era") ||
+      q === "era" ||
+      q.includes("current era")
+    ) {
+      answerLive(
+        `PROTOCOL ERA
+
+Current Era: ${ctx.protocolEra || "UNKNOWN"}
+
+Protocol era describes the current phase of Energon's deterministic timeline.
+
+The system does not react emotionally.
+
+It advances when conditions are met.`
+      );
+      return true;
+    }
+
+    if (q === "9") {
+      answerLive("Hidden signal placeholder.", "echo");
+      return true;
+    }
+
+    if (q === "0") {
+      answerLive("Core echo placeholder.", "echo");
+      return true;
+    }
+
+    return false;
   }
 
   async function refreshLiveState({ speak = false } = {}) {
@@ -623,6 +816,11 @@ Type a number or option name.`
       if (landingMode) {
         handleLandingMessage(clean);
         return;
+      }
+
+      if (ctx.guardianState === "COHERENT") {
+        const handled = handleCoherentMessage(clean);
+        if (handled) return;
       }
 
       const personalEcho = getPersonalEchoResponse(clean);
