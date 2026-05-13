@@ -133,10 +133,13 @@ export default function QoriNode() {
 
     const params = new URLSearchParams(window.location.search);
 
-    if (params.get("open") === "1") setOpen(true);
+    if (params.get("open") === "1") {
+      setOpen(true);
+    }
 
     if (params.get("mode") === "landing") {
       setLandingMode(true);
+
       setCtx((prev) => ({
         ...prev,
         walletConnected: false,
@@ -149,7 +152,31 @@ export default function QoriNode() {
         nextHalvingDate: "",
         protocolEra: "GENESIS CYCLE",
       }));
+
+      return;
     }
+
+    const refreshFromWallet = () => {
+      refreshLiveState({ speak: false });
+    };
+
+    if (window.ethereum) {
+      window.ethereum.on?.("accountsChanged", refreshFromWallet);
+      window.ethereum.on?.("chainChanged", refreshFromWallet);
+    }
+
+    window.addEventListener("focus", refreshFromWallet);
+
+    refreshFromWallet();
+
+    return () => {
+      if (window.ethereum) {
+        window.ethereum.removeListener?.("accountsChanged", refreshFromWallet);
+        window.ethereum.removeListener?.("chainChanged", refreshFromWallet);
+      }
+
+      window.removeEventListener("focus", refreshFromWallet);
+    };
   }, []);
 
   useEffect(() => {
@@ -818,9 +845,16 @@ It advances when conditions are met.`
         return;
       }
 
-      if (ctx.guardianState === "COHERENT") {
+      if (
+        ctx.guardianState === "COHERENT" ||
+        ctx.guardianState === "FRACTURED" ||
+        ctx.guardianState === "NO KEY"
+      ) {
         const handled = handleCoherentMessage(clean);
-        if (handled) return;
+
+        if (handled) {
+          return;
+        }
       }
 
       const personalEcho = getPersonalEchoResponse(clean);
