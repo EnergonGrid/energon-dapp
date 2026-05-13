@@ -17,20 +17,39 @@ function vaultCountdownDays() {
 }
 
 const LANDING_PROMPTS = [
-  "Select a path into the Energon Grid.",
-  "How may I assist your entry into the system?",
-  "The Grid remains active. Choose your next action.",
-  "Q.O.R.I observes. Where would you like to begin?",
-  "A Guardian requires understanding before entry. Select an option.",
-  "The protocol is live. How would you like to proceed?",
-  "One wallet. One cube. Choose your next step.",
-  "The Energon Grid is operational. Awaiting instruction.",
-  "Entry paths available. Select an action.",
-  "Q.O.R.I remains online. How can I guide you?",
+  "Visitor signal received. Select your entry path.",
+  "Q.O.R.I observes from the public gate. Choose a path.",
+  "The Grid is visible from here. Where would you like to begin?",
+  "Before Guardian state, there is understanding. Select an option.",
+  "Public interface active. Choose your next step into Energon.",
+  "The system is live. Entry paths are available.",
+  "One wallet. One cube. Begin with the path that fits you.",
+  "Q.O.R.I is online. Select your route into the protocol.",
+  "The Energon Grid awaits observation. Choose an action.",
+  "Access begins with understanding. Select a public path.",
+];
+
+const COHERENT_RETURN_PROMPTS = [
+  "The Grid remains coherent. Select a system path.",
+  "Guardian state verified. Additional observations available.",
+  "Q.O.R.I remains synchronized with the protocol.",
+  "The Energon system is active. Choose your next query.",
+  "Coherent state stable. Awaiting Guardian instruction.",
+  "Live protocol observation continues. Select an option.",
+  "The Grid continues to advance through rule and state.",
+  "Guardian interface remains online. Additional paths available.",
+  "Q.O.R.I observes continued coherence across the system.",
+  "Energon remains active. Choose your next observation.",
 ];
 
 function randomLandingPrompt() {
   return LANDING_PROMPTS[Math.floor(Math.random() * LANDING_PROMPTS.length)];
+}
+
+function randomCoherentPrompt() {
+  return COHERENT_RETURN_PROMPTS[
+    Math.floor(Math.random() * COHERENT_RETURN_PROMPTS.length)
+  ];
 }
 
 function landingMenuWithPrompt() {
@@ -46,6 +65,21 @@ function landingMenuWithPrompt() {
 8. Enter dApp
 
 Type a number or option name.`;
+}
+
+function coherentMenuWithPrompt() {
+  return `${randomCoherentPrompt()}
+
+1. System Status
+2. Guardian State
+3. Energon Height
+4. Cube Balance
+5. Tick State
+6. Burn State
+7. Halving Cycle
+8. Protocol Era
+
+Type a number or ask directly.`;
 }
 
 const LANDING_MENU = `Q.O.R.I ONLINE
@@ -133,13 +167,10 @@ export default function QoriNode() {
 
     const params = new URLSearchParams(window.location.search);
 
-    if (params.get("open") === "1") {
-      setOpen(true);
-    }
+    if (params.get("open") === "1") setOpen(true);
 
     if (params.get("mode") === "landing") {
       setLandingMode(true);
-
       setCtx((prev) => ({
         ...prev,
         walletConnected: false,
@@ -152,13 +183,10 @@ export default function QoriNode() {
         nextHalvingDate: "",
         protocolEra: "GENESIS CYCLE",
       }));
-
       return;
     }
 
-    const refreshFromWallet = () => {
-      refreshLiveState({ speak: false });
-    };
+    const refreshFromWallet = () => refreshLiveState({ speak: false });
 
     if (window.ethereum) {
       window.ethereum.on?.("accountsChanged", refreshFromWallet);
@@ -166,7 +194,6 @@ export default function QoriNode() {
     }
 
     window.addEventListener("focus", refreshFromWallet);
-
     refreshFromWallet();
 
     return () => {
@@ -174,7 +201,6 @@ export default function QoriNode() {
         window.ethereum.removeListener?.("accountsChanged", refreshFromWallet);
         window.ethereum.removeListener?.("chainChanged", refreshFromWallet);
       }
-
       window.removeEventListener("focus", refreshFromWallet);
     };
   }, []);
@@ -191,12 +217,10 @@ export default function QoriNode() {
     };
 
     window.addEventListener("pageshow", resetOnBack);
-
     return () => window.removeEventListener("pageshow", resetOnBack);
   }, [landingMode]);
 
   const visuals = getStateVisuals(ctx.guardianState, silent);
-
   const activeTextColor = displayTone === "echo" ? "#ffcf6b" : visuals.color;
 
   const activeTextShadow =
@@ -206,12 +230,8 @@ export default function QoriNode() {
 
   function resetSilentTimer() {
     setSilent(false);
-
     if (silentRef.current) clearTimeout(silentRef.current);
-
-    silentRef.current = setTimeout(() => {
-      setSilent(true);
-    }, 240000);
+    silentRef.current = setTimeout(() => setSilent(true), 240000);
   }
 
   function clearReturnMenuTimer() {
@@ -233,6 +253,16 @@ export default function QoriNode() {
     }, delay);
   }
 
+  function scheduleReturnToCoherentMenu(delay = 10000) {
+    if (landingMode) return;
+
+    clearReturnMenuTimer();
+
+    returnMenuRef.current = setTimeout(() => {
+      transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
+    }, delay);
+  }
+
   function transmit(text, speed = 32, onDone, tone = "system") {
     stopTyping(typingRef);
     resetSilentTimer();
@@ -241,10 +271,7 @@ export default function QoriNode() {
 
     typingRef.current = typeText(text, setDisplayText, speed, () => {
       setIsTyping(false);
-
-      if (typeof onDone === "function") {
-        onDone();
-      }
+      if (typeof onDone === "function") onDone();
     });
   }
 
@@ -262,10 +289,7 @@ export default function QoriNode() {
           return;
         }
 
-        if (autoReturn) {
-          scheduleReturnToMenu(10000);
-        }
-
+        if (autoReturn) scheduleReturnToMenu(10000);
         setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -273,11 +297,14 @@ export default function QoriNode() {
   }
 
   function answerLive(text, tone = "system") {
+    clearReturnMenuTimer();
+
     transmit(
       text + "\n\n_",
       30,
       () => {
         setThinking(false);
+        scheduleReturnToCoherentMenu(10000);
         setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -616,11 +643,7 @@ One coherent Guardian state.`
       return true;
     }
 
-    if (
-      q === "3" ||
-      q.includes("energon height") ||
-      q.includes("height")
-    ) {
+    if (q === "3" || q.includes("energon height") || q.includes("height")) {
       answerLive(
         `ENERGON HEIGHT
 
@@ -681,11 +704,7 @@ They are not controlled by the interface.`
       return true;
     }
 
-    if (
-      q === "7" ||
-      q.includes("halving cycle") ||
-      q.includes("halving")
-    ) {
+    if (q === "7" || q.includes("halving cycle") || q.includes("halving")) {
       answerLive(
         `HALVING CYCLE
 
@@ -769,14 +788,18 @@ It advances when conditions are met.`
           () => {
             if (nextCtx.guardianState === "COHERENT") {
               setTimeout(() => {
-                transmit(COHERENT_HELP_MENU + "\n\n_", 30, undefined, "system");
+                transmit(
+                  coherentMenuWithPrompt() + "\n\n_",
+                  30,
+                  undefined,
+                  "system"
+                );
               }, 10000);
             }
           },
           "system"
         );
       }
-      
     } catch {
       if (speak) {
         transmit(
@@ -858,10 +881,7 @@ It advances when conditions are met.`
         ctx.guardianState === "NO KEY"
       ) {
         const handled = handleCoherentMessage(clean);
-
-        if (handled) {
-          return;
-        }
+        if (handled) return;
       }
 
       const personalEcho = getPersonalEchoResponse(clean);
@@ -875,6 +895,15 @@ It advances when conditions are met.`
         30,
         () => {
           setThinking(false);
+
+          if (
+            ctx.guardianState === "COHERENT" ||
+            ctx.guardianState === "FRACTURED" ||
+            ctx.guardianState === "NO KEY"
+          ) {
+            scheduleReturnToCoherentMenu(10000);
+          }
+
           setTimeout(() => inputRef.current?.focus(), 50);
         },
         tone
