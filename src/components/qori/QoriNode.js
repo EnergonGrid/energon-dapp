@@ -16,6 +16,13 @@ function vaultCountdownDays() {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
+const GRID_ENTRY_PROMPT = `Would you like to enter the Energon Grid?
+
+1. Yes
+2. No
+
+Type 1 or 2.`;
+
 const LANDING_PROMPTS = [
   "Visitor signal received. Select your entry path.",
   "Q.O.R.I observes from the public gate. Choose a path.",
@@ -141,6 +148,7 @@ export default function QoriNode() {
   const [hovered, setHovered] = useState(false);
   const [landingMode, setLandingMode] = useState(false);
   const [pendingLandingAction, setPendingLandingAction] = useState(null);
+  const [pendingGridEntry, setPendingGridEntry] = useState(false);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -210,6 +218,7 @@ export default function QoriNode() {
 
     const resetOnBack = () => {
       setPendingLandingAction(null);
+      setPendingGridEntry(false);
       setThinking(false);
       setIsTyping(false);
       stopTyping(typingRef);
@@ -248,6 +257,7 @@ export default function QoriNode() {
 
     returnMenuRef.current = setTimeout(() => {
       setPendingLandingAction(null);
+      setPendingGridEntry(false);
       setThinking(false);
       transmit(landingMenuWithPrompt() + "\n\n_", 24, undefined, "system");
     }, delay);
@@ -314,6 +324,34 @@ export default function QoriNode() {
   function handleLandingMessage(cleanInput) {
     const q = normalizeLandingInput(cleanInput);
 
+    if (pendingGridEntry) {
+      if (q === "1" || q === "yes" || q === "y") {
+        setPendingGridEntry(false);
+        answerLanding(
+          `Opening Energon Grid.
+
+Prepare your wallet carefully.
+
+One wallet.
+One cube.
+One Guardian.`,
+          "system",
+          () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
+          false
+        );
+        return;
+      }
+
+      if (q === "2" || q === "no" || q === "n") {
+        setPendingGridEntry(false);
+        answerLanding(landingMenuWithPrompt(), "system", undefined, false);
+        return;
+      }
+
+      answerLanding(GRID_ENTRY_PROMPT, "system", undefined, false);
+      return;
+    }
+
     if (
       q === "menu" ||
       q === "main menu" ||
@@ -322,6 +360,7 @@ export default function QoriNode() {
       q === "visitor interface"
     ) {
       setPendingLandingAction(null);
+      setPendingGridEntry(false);
       answerLanding(landingMenuWithPrompt(), "system", undefined, false);
       return;
     }
@@ -771,7 +810,17 @@ It advances when conditions are met.`
       setCtx(visitorCtx);
 
       if (speak) {
-        transmit(LANDING_MENU + "\n\n_", 32, undefined, "system");
+        transmit(
+          getSystemObservation(visitorCtx) + "\n\n_",
+          32,
+          () => {
+            setTimeout(() => {
+              setPendingGridEntry(true);
+              transmit(GRID_ENTRY_PROMPT + "\n\n_", 30, undefined, "system");
+            }, 10000);
+          },
+          "system"
+        );
       }
 
       return;
