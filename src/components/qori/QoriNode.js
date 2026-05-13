@@ -417,20 +417,27 @@ It reads state.`
       q.includes("q.o.r.i")
     ) {
       answerLanding(
-        `Q.O.R.I is the Quantum Observation Response Interface.
-
-It does not control Energon.
-
-It observes.
-It explains.
-It guides.
-
-On the public page, Q.O.R.I helps visitors understand the entry path.
-
-Inside the dApp, Q.O.R.I reflects live Guardian state.`
+        `Q.O.R.I stands for:
+    
+    Quantum Overwatch Real-time Interface.
+    
+    Q.O.R.I observes the Energon Grid in real-time.
+    
+    It does not control the protocol.
+    
+    It watches.
+    It reflects.
+    It guides.
+    
+    On the public interface,
+    Q.O.R.I assists visitors entering the system.
+    
+    Inside the Guardian interface,
+    Q.O.R.I observes live protocol state directly from Flare.`
       );
       return;
     }
+    
 
     if (
       q === "8" ||
