@@ -122,7 +122,16 @@ export async function readQoriLiveState() {
 
       try {
         const remaining = await controller.burnPoolRemaining();
-        baseCtx.burnState = `${remaining.toString()} remaining`;
+      
+        const formattedRemaining = ethers.formatUnits(remaining, 18);
+      
+        const cleanRemaining = Number(
+          formattedRemaining
+        ).toLocaleString(undefined, {
+          maximumFractionDigits: 2,
+        });
+      
+        baseCtx.burnState = `${cleanRemaining} EON remaining`;
       } catch {}
 
       try {

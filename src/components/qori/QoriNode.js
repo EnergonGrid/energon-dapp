@@ -766,10 +766,17 @@ It advances when conditions are met.`
         transmit(
           getSystemObservation(nextCtx) + "\n\n_",
           32,
-          undefined,
+          () => {
+            if (nextCtx.guardianState === "COHERENT") {
+              setTimeout(() => {
+                transmit(COHERENT_HELP_MENU + "\n\n_", 30, undefined, "system");
+              }, 10000);
+            }
+          },
           "system"
         );
       }
+      
     } catch {
       if (speak) {
         transmit(
