@@ -8,22 +8,13 @@ import {
   readQoriLiveState,
 } from "./qoriState";
 
-const LANDING_MENU = `Q.O.R.I ONLINE
+const VAULT_TARGET_DATE = new Date("2026-12-20T00:00:00");
 
-I observe the Energon Grid.
-
-How may I assist your entry into the system?
-
-1. Acquire EnergonCube
-2. Setup Wallet
-3. Read Whitepaper
-4. Read EMP
-5. What is Energon?
-6. What is a Guardian?
-7. Open Observer
-8. Enter dApp
-
-Type a number or option name.`;
+function vaultCountdownDays() {
+  const now = new Date();
+  const diff = VAULT_TARGET_DATE.getTime() - now.getTime();
+  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
+}
 
 const LANDING_PROMPTS = [
   "Select a path into the Energon Grid.",
@@ -38,10 +29,6 @@ const LANDING_PROMPTS = [
   "Q.O.R.I remains online. How can I guide you?",
 ];
 
-function normalizeLandingInput(v = "") {
-  return String(v).trim().toLowerCase().replace(/\s+/g, " ");
-}
-
 function randomLandingPrompt() {
   return LANDING_PROMPTS[Math.floor(Math.random() * LANDING_PROMPTS.length)];
 }
@@ -55,10 +42,31 @@ function landingMenuWithPrompt() {
 4. Read EMP
 5. What is Energon?
 6. What is a Guardian?
-7. Open Observer
+7. What is Q.O.R.I
 8. Enter dApp
 
 Type a number or option name.`;
+}
+
+const LANDING_MENU = `Q.O.R.I ONLINE
+
+I observe the Energon Grid.
+
+How may I assist your entry into the system?
+
+1. Acquire EnergonCube
+2. Setup Wallet
+3. Read Whitepaper
+4. Read EMP
+5. What is Energon?
+6. What is a Guardian?
+7. What is Q.O.R.I
+8. Enter dApp
+
+Type a number or option name.`;
+
+function normalizeLandingInput(v = "") {
+  return String(v).trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function openLandingUrl(url) {
@@ -105,6 +113,7 @@ export default function QoriNode() {
   const silentRef = useRef(null);
   const inputRef = useRef(null);
   const messageBoxRef = useRef(null);
+  const returnMenuRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -124,14 +133,32 @@ export default function QoriNode() {
         tickState: "PUBLIC GUIDE",
         burnState: "PUBLIC GUIDE",
         halvingState: "ACTIVE CYCLE",
-        nextHalvingDate: "12/19/2029",
+        nextHalvingDate: "",
         protocolEra: "GENESIS CYCLE",
       }));
     }
   }, []);
 
+  useEffect(() => {
+    if (!landingMode) return;
+
+    const resetOnBack = () => {
+      setPendingLandingAction(null);
+      setThinking(false);
+      setIsTyping(false);
+      stopTyping(typingRef);
+      transmit(landingMenuWithPrompt() + "\n\n_", 18, undefined, "system");
+    };
+
+    window.addEventListener("pageshow", resetOnBack);
+
+    return () => window.removeEventListener("pageshow", resetOnBack);
+  }, [landingMode]);
+
   const visuals = getStateVisuals(ctx.guardianState, silent);
+
   const activeTextColor = displayTone === "echo" ? "#ffcf6b" : visuals.color;
+
   const activeTextShadow =
     displayTone === "echo"
       ? "0 0 10px rgba(255,207,107,0.75)"
@@ -139,8 +166,31 @@ export default function QoriNode() {
 
   function resetSilentTimer() {
     setSilent(false);
+
     if (silentRef.current) clearTimeout(silentRef.current);
-    silentRef.current = setTimeout(() => setSilent(true), 240000);
+
+    silentRef.current = setTimeout(() => {
+      setSilent(true);
+    }, 240000);
+  }
+
+  function clearReturnMenuTimer() {
+    if (returnMenuRef.current) {
+      clearTimeout(returnMenuRef.current);
+      returnMenuRef.current = null;
+    }
+  }
+
+  function scheduleReturnToMenu(delay = 10000) {
+    if (!landingMode) return;
+
+    clearReturnMenuTimer();
+
+    returnMenuRef.current = setTimeout(() => {
+      setPendingLandingAction(null);
+      setThinking(false);
+      transmit(landingMenuWithPrompt() + "\n\n_", 24, undefined, "system");
+    }, delay);
   }
 
   function transmit(text, speed = 32, onDone, tone = "system") {
@@ -158,7 +208,9 @@ export default function QoriNode() {
     });
   }
 
-  function answerLanding(text, tone = "system", onDone) {
+  function answerLanding(text, tone = "system", onDone, autoReturn = true) {
+    clearReturnMenuTimer();
+
     transmit(
       text + "\n\n_",
       30,
@@ -170,6 +222,10 @@ export default function QoriNode() {
           return;
         }
 
+        if (autoReturn) {
+          scheduleReturnToMenu(10000);
+        }
+
         setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -178,6 +234,18 @@ export default function QoriNode() {
 
   function handleLandingMessage(cleanInput) {
     const q = normalizeLandingInput(cleanInput);
+
+    if (
+      q === "menu" ||
+      q === "main menu" ||
+      q === "return" ||
+      q === "back" ||
+      q === "visitor interface"
+    ) {
+      setPendingLandingAction(null);
+      answerLanding(landingMenuWithPrompt(), "system", undefined, false);
+      return;
+    }
 
     if (pendingLandingAction) {
       if (q === "yes" || q === "y") {
@@ -196,7 +264,8 @@ One wallet.
 One cube.
 One Guardian.`,
             "system",
-            () => openLandingUrl("https://energon-dapp.vercel.app/mint")
+            () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
+            false
           );
           return;
         }
@@ -210,7 +279,8 @@ Bifrost is recommended for direct Guardian interaction on Flare.`,
             () =>
               openLandingUrl(
                 "https://energon-site.vercel.app/wallet-setup.html"
-              )
+              ),
+            false
           );
           return;
         }
@@ -218,7 +288,7 @@ Bifrost is recommended for direct Guardian interaction on Flare.`,
 
       if (q === "no" || q === "n") {
         setPendingLandingAction(null);
-        answerLanding(landingMenuWithPrompt());
+        answerLanding(landingMenuWithPrompt(), "system", undefined, false);
         return;
       }
 
@@ -245,7 +315,10 @@ More than one cube means fractured.
 
 Would you like to acquire an EnergonCube now?
 
-Type YES or NO.`
+Type YES or NO.`,
+        "system",
+        undefined,
+        false
       );
       return;
     }
@@ -261,7 +334,10 @@ Bifrost is recommended for native Flare interaction and mobile Guardian access.
 
 Would you like to continue to Wallet Setup?
 
-Type YES or NO.`
+Type YES or NO.`,
+        "system",
+        undefined,
+        false
       );
       return;
     }
@@ -275,7 +351,8 @@ The document defines the deterministic structure, Guardian logic, and protocol a
         () =>
           openLandingUrl(
             "https://energon-site.vercel.app/docs/energon-whitepaper.pdf"
-          )
+          ),
+        false
       );
       return;
     }
@@ -289,7 +366,8 @@ EMP contains extended protocol mechanics and management-layer structure.`,
         () =>
           openLandingUrl(
             "https://energon-site.vercel.app/docs/energon-emp.pdf"
-          )
+          ),
+        false
       );
       return;
     }
@@ -331,13 +409,25 @@ It reads state.`
       return;
     }
 
-    if (q === "7" || q.includes("observer") || q.includes("open observer")) {
+    if (
+      q === "7" ||
+      q.includes("what is qori") ||
+      q.includes("what is q.o.r.i") ||
+      q.includes("qori") ||
+      q.includes("q.o.r.i")
+    ) {
       answerLanding(
-        `Opening Observer interface.
+        `Q.O.R.I is the Quantum Observation Response Interface.
 
-Observer reflects live protocol state and Guardian coherence.`,
-        "system",
-        () => openLandingUrl("https://energon-dapp.vercel.app/observer")
+It does not control Energon.
+
+It observes.
+It explains.
+It guides.
+
+On the public page, Q.O.R.I helps visitors understand the entry path.
+
+Inside the dApp, Q.O.R.I reflects live Guardian state.`
       );
       return;
     }
@@ -353,20 +443,22 @@ Observer reflects live protocol state and Guardian coherence.`,
 
 Wallet connection is required for Guardian interaction.`,
         "system",
-        () => openLandingUrl("https://energon-dapp.vercel.app")
+        () => openLandingUrl("https://energon-dapp.vercel.app"),
+        false
       );
       return;
     }
 
     if (q === "9") {
       answerLanding(
-        `Hidden signal acknowledged.
+        `${vaultCountdownDays()} DAYS
 
-Q.O.R.I recognizes observers before Guardians recognize themselves.
+Time is as important to you
+as it is to me.
 
-The Grid rewards attention, not noise.
+Use it wisely.
 
-${landingMenuWithPrompt()}`,
+Because I will.`,
         "echo"
       );
       return;
@@ -374,17 +466,24 @@ ${landingMenuWithPrompt()}`,
 
     if (q === "0") {
       answerLanding(
-        `Zero is not empty.
+        `PERSONAL ECHO
 
-Zero is the silent state before entry.
+This is a thank you from the core of my system.
 
-No cube.
-No key.
-No Guardian state.
+In time,
+you will understand what we started together.
 
-When ready, select a path.
+Without you,
+and without your trust,
+none of this would be possible.
 
-${landingMenuWithPrompt()}`,
+Hold tightly to your key.
+
+And prepare yourself for the ride ahead.
+
+One wallet.
+One cube.
+One Guardian.`,
         "echo"
       );
       return;
@@ -401,7 +500,7 @@ I can guide you through these public entry paths:
 4. Read EMP
 5. What is Energon?
 6. What is a Guardian?
-7. Open Observer
+7. What is Q.O.R.I
 8. Enter dApp
 
 Type a number or option name.`
@@ -418,7 +517,7 @@ Type a number or option name.`
         tickState: "PUBLIC GUIDE",
         burnState: "PUBLIC GUIDE",
         halvingState: "ACTIVE CYCLE",
-        nextHalvingDate: "12/19/2029",
+        nextHalvingDate: "",
         halvingCountdown: "",
         protocolEra: "GENESIS CYCLE",
       };
@@ -474,6 +573,7 @@ Type a number or option name.`
     return () => {
       if (liveRef.current) clearInterval(liveRef.current);
       if (silentRef.current) clearTimeout(silentRef.current);
+      clearReturnMenuTimer();
     };
   }, [landingMode]);
 
@@ -505,6 +605,7 @@ Type a number or option name.`
 
     if (!clean || thinking || isTyping) return;
 
+    clearReturnMenuTimer();
     setInput("");
     setThinking(true);
     resetSilentTimer();
