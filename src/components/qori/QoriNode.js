@@ -845,6 +845,13 @@ It advances when conditions are met.`
                 );
               }, 10000);
             }
+
+            if (nextCtx.guardianState === "NO KEY") {
+              setTimeout(() => {
+                setPendingGridEntry(true);
+                transmit(GRID_ENTRY_PROMPT + "\n\n_", 30, undefined, "system");
+              }, 10000);
+            }
           },
           "system"
         );
@@ -910,6 +917,33 @@ It advances when conditions are met.`
     const clean = input.trim();
 
     if (!clean || thinking || isTyping) return;
+
+    const q = normalizeLandingInput(clean);
+
+    if (pendingGridEntry) {
+      if (q === "1" || q === "yes" || q === "y") {
+        setPendingGridEntry(false);
+        setInput("");
+        openLandingUrl("https://energon-dapp.vercel.app/mint");
+        return;
+      }
+
+      if (q === "2" || q === "no" || q === "n") {
+        setPendingGridEntry(false);
+        setInput("");
+        setThinking(true);
+        transmit(
+          landingMenuWithPrompt() + "\n\n_",
+          30,
+          () => {
+            setThinking(false);
+            setTimeout(() => inputRef.current?.focus(), 50);
+          },
+          "system"
+        );
+        return;
+      }
+    }
 
     clearReturnMenuTimer();
     setInput("");
