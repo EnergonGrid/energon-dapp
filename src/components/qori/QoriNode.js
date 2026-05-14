@@ -136,7 +136,7 @@ function openLandingUrl(url) {
   window.location.href = url;
 }
 
-export default function QoriNode() {
+export default function QoriNode({ hideOrb = true } = {}) {
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(1);
   const [input, setInput] = useState("");
@@ -1013,19 +1013,33 @@ It advances when conditions are met.`
     }, 1500);
   }
 
+  function openQoriNode() {
+    setWalletPromptGlow(false);
+    setOpen(true);
+    resetSilentTimer();
+    setTimeout(() => inputRef.current?.focus(), 450);
+  }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const openFromProtocol = () => openQoriNode();
+    window.addEventListener("energon:open-qori", openFromProtocol);
+
+    return () => {
+      window.removeEventListener("energon:open-qori", openFromProtocol);
+    };
+  }, []);
+
   return (
     <>
+      {!hideOrb && (
       <button
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onTouchStart={() => setHovered(true)}
         onTouchEnd={() => setHovered(false)}
-        onClick={() => {
-          setWalletPromptGlow(false);
-          setOpen(true);
-          resetSilentTimer();
-          setTimeout(() => inputRef.current?.focus(), 450);
-        }}
+        onClick={openQoriNode}
         aria-label="Open Q.O.R.I"
         title={`Q.O.R.I: ${ctx.guardianState || "ONLINE"}`}
         style={{
@@ -1050,6 +1064,7 @@ It advances when conditions are met.`
           cursor: "pointer",
         }}
       />
+      )}
 
       {open && (
         <div
