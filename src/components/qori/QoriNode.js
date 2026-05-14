@@ -149,6 +149,7 @@ export default function QoriNode() {
   const [landingMode, setLandingMode] = useState(false);
   const [pendingLandingAction, setPendingLandingAction] = useState(null);
   const [pendingGridEntry, setPendingGridEntry] = useState(false);
+  const [walletPromptGlow, setWalletPromptGlow] = useState(false);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -169,6 +170,24 @@ export default function QoriNode() {
   const inputRef = useRef(null);
   const messageBoxRef = useRef(null);
   const returnMenuRef = useRef(null);
+  const previousWalletConnectedRef = useRef(false);
+
+  useEffect(() => {
+    if (landingMode) return;
+
+    const wasConnected = previousWalletConnectedRef.current;
+    const isConnected = !!ctx.walletConnected;
+
+    if (!wasConnected && isConnected) {
+      setWalletPromptGlow(true);
+    }
+
+    if (!isConnected) {
+      setWalletPromptGlow(false);
+    }
+
+    previousWalletConnectedRef.current = isConnected;
+  }, [ctx.walletConnected, landingMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1002,6 +1021,7 @@ It advances when conditions are met.`
         onTouchStart={() => setHovered(true)}
         onTouchEnd={() => setHovered(false)}
         onClick={() => {
+          setWalletPromptGlow(false);
           setOpen(true);
           resetSilentTimer();
           setTimeout(() => inputRef.current?.focus(), 450);
@@ -1012,13 +1032,18 @@ It advances when conditions are met.`
           position: "fixed",
           top: 34,
           left: 24,
-          width: hovered ? 16 : silent ? 10 : 12,
-          height: hovered ? 16 : silent ? 10 : 12,
-          opacity: hovered ? 1 : silent ? 0.18 : 0.28,
+          width: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
+          height: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
+          opacity: walletPromptGlow ? 1 : hovered ? 1 : silent ? 0.18 : 0.28,
           borderRadius: "50%",
           border: visuals.border,
-          background: hovered ? visuals.color : "rgba(47,212,255,0.08)",
-          boxShadow: visuals.shadow,
+          background:
+            walletPromptGlow || hovered
+              ? visuals.color
+              : "rgba(47,212,255,0.08)",
+          boxShadow: walletPromptGlow
+            ? `${visuals.shadow}, 0 0 28px ${visuals.color}, 0 0 58px ${visuals.color}`
+            : visuals.shadow,
           transform: `scale(${pulse})`,
           transition: "all 2.2s ease-in-out",
           zIndex: 9999,
