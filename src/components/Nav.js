@@ -1,13 +1,11 @@
 import Link from "next/link";
 import { useRouter } from "next/router";
-import { useEffect, useRef, useState } from "react";
-import { readQoriLiveState } from "./qori/qoriState";
+import { useEffect, useState } from "react";
 
-export default function Nav() {
+export default function Nav({ guardianState = "silent" }) {
   const router = useRouter();
-  const [guardianState, setGuardianState] = useState("silent");
-  const [protocolPromptGlow, setProtocolPromptGlow] = useState(false);
-  const previousWalletConnectedRef = useRef(false);
+
+  const [hasAcknowledgedPulse, setHasAcknowledgedPulse] = useState(false);
 
   const tabs = [
     { href: "/mint", label: "Mint" },
@@ -16,78 +14,44 @@ export default function Nav() {
   ];
 
   useEffect(() => {
-    async function refreshNavState() {
-      try {
-        const ctx = await readQoriLiveState();
-        const nextState = ctx.guardianState || "silent";
-        const isConnected = !!ctx.walletConnected;
-        const wasConnected = previousWalletConnectedRef.current;
-
-        setGuardianState(nextState);
-
-        if (!wasConnected && isConnected) {
-          setProtocolPromptGlow(true);
-        }
-
-        if (!isConnected) {
-          setProtocolPromptGlow(false);
-        }
-
-        previousWalletConnectedRef.current = isConnected;
-      } catch {
-        setGuardianState("silent");
-        setProtocolPromptGlow(false);
-        previousWalletConnectedRef.current = false;
-      }
-    }
-
-    refreshNavState();
-    const interval = setInterval(refreshNavState, 15000);
-
-    if (typeof window !== "undefined") {
-      window.addEventListener("focus", refreshNavState);
-
-      if (window.ethereum) {
-        window.ethereum.on?.("accountsChanged", refreshNavState);
-        window.ethereum.on?.("chainChanged", refreshNavState);
-      }
-    }
-
-    return () => {
-      clearInterval(interval);
-
-      if (typeof window !== "undefined") {
-        window.removeEventListener("focus", refreshNavState);
-
-        if (window.ethereum) {
-          window.ethereum.removeListener?.("accountsChanged", refreshNavState);
-          window.ethereum.removeListener?.("chainChanged", refreshNavState);
-        }
-      }
-    };
-  }, []);
-
-  useEffect(() => {
     const style = document.createElement("style");
+
     style.innerHTML = `
-      @keyframes energonShimmer {
-        0% { background-position: -200% center; }
-        100% { background-position: 200% center; }
+      @keyframes protocolGlowPulse {
+        0% {
+          transform: scale(1);
+          opacity: .82;
+          box-shadow: var(--protocol-glow-low);
+        }
+
+        50% {
+          transform: scale(1.018);
+          opacity: 1;
+          box-shadow: var(--protocol-glow-high);
+        }
+
+        100% {
+          transform: scale(1);
+          opacity: .82;
+          box-shadow: var(--protocol-glow-low);
+        }
       }
 
-      @keyframes protocolSoftPulse {
-        0%, 100% {
-          box-shadow: var(--protocol-glow-low);
-          opacity: .72;
-          transform: scale(1);
+      @keyframes navShimmer {
+        0% {
+          background-position: -200% center;
         }
-        50% {
-          box-shadow: var(--protocol-glow-high);
-          opacity: 1;
-          transform: scale(1.025);
+
+        100% {
+          background-position: 200% center;
         }
+      }
+
+      .energon-scrollbar::-webkit-scrollbar {
+        display: none;
       }
     `;
+
     document.head.appendChild(style);
 
     return () => {
@@ -95,41 +59,72 @@ export default function Nav() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const handleWalletConnected = () => {
+      setHasAcknowledgedPulse(false);
+    };
+
+    const handleWalletDisconnected = () => {
+      setHasAcknowledgedPulse(false);
+    };
+
+    window.addEventListener(
+      "energon:wallet-connected",
+      handleWalletConnected
+    );
+
+    window.addEventListener(
+      "energon:wallet-disconnected",
+      handleWalletDisconnected
+    );
+
+    return () => {
+      window.removeEventListener(
+        "energon:wallet-connected",
+        handleWalletConnected
+      );
+
+      window.removeEventListener(
+        "energon:wallet-disconnected",
+        handleWalletDisconnected
+      );
+    };
+  }, []);
+
   const stateKey = String(guardianState || "silent").toLowerCase();
 
-  const isCoherent = stateKey === "coherent";
-  const isFractured = stateKey === "fractured";
+  const protocolColor =
+    stateKey === "coherent"
+      ? "rgba(80,255,210,.96)"
+      : stateKey === "fractured"
+      ? "rgba(255,70,105,.96)"
+      : "rgba(145,155,175,.72)";
 
-  const protocolColor = isCoherent
-    ? "rgba(80,255,210,.95)"
-    : isFractured
-    ? "rgba(255,70,105,.95)"
-    : "rgba(120,130,145,.42)";
+  const glowLow =
+    stateKey === "coherent"
+      ? "0 0 8px rgba(70,255,210,.14), inset 0 0 10px rgba(70,255,210,.05)"
+      : stateKey === "fractured"
+      ? "0 0 8px rgba(255,70,105,.14), inset 0 0 10px rgba(255,70,105,.05)"
+      : "0 0 4px rgba(120,130,150,.08), inset 0 0 6px rgba(120,130,150,.03)";
 
-  const glowLow = isCoherent
-    ? "0 0 8px rgba(70,255,210,.16), inset 0 0 10px rgba(70,255,210,.07)"
-    : isFractured
-    ? "0 0 8px rgba(255,70,105,.16), inset 0 0 10px rgba(255,70,105,.07)"
-    : "0 0 4px rgba(120,130,145,.08), inset 0 0 8px rgba(120,130,145,.04)";
+  const glowHigh =
+    stateKey === "coherent"
+      ? "0 0 18px rgba(70,255,210,.38), inset 0 0 18px rgba(70,255,210,.10)"
+      : stateKey === "fractured"
+      ? "0 0 18px rgba(255,70,105,.38), inset 0 0 18px rgba(255,70,105,.10)"
+      : "0 0 8px rgba(120,130,150,.12), inset 0 0 8px rgba(120,130,150,.05)";
 
-  const glowHigh = isCoherent
-    ? "0 0 18px rgba(70,255,210,.42), 0 0 34px rgba(70,255,210,.20), inset 0 0 18px rgba(70,255,210,.12)"
-    : isFractured
-    ? "0 0 18px rgba(255,70,105,.42), 0 0 34px rgba(255,70,105,.20), inset 0 0 18px rgba(255,70,105,.12)"
-    : glowLow;
-
-  const shouldPulse = protocolPromptGlow && (isCoherent || isFractured);
-
-  const shimmerStyle = {
-    background:
-      "linear-gradient(110deg, rgba(255,210,90,0.25) 0%, rgba(255,240,170,0.45) 40%, rgba(255,210,90,0.25) 60%)",
-    backgroundSize: "200% 100%",
-    animation: "energonShimmer 6s linear infinite",
-  };
+  const shouldPulse =
+    !hasAcknowledgedPulse &&
+    (stateKey === "coherent" || stateKey === "fractured");
 
   function openQori() {
     if (typeof window === "undefined") return;
-    setProtocolPromptGlow(false);
+
+    setHasAcknowledgedPulse(true);
+
     window.dispatchEvent(new Event("energon:open-qori"));
   }
 
@@ -141,71 +136,102 @@ export default function Nav() {
         zIndex: 100,
         backdropFilter: "blur(14px)",
         background:
-          "linear-gradient(180deg, rgba(7,10,18,.92), rgba(7,10,18,.72))",
-        borderBottom: "1px solid rgba(120,170,255,.14)",
+          "linear-gradient(180deg, rgba(7,10,18,.94), rgba(7,10,18,.76))",
+        borderBottom: "1px solid rgba(120,170,255,.12)",
       }}
     >
       <div
         style={{
-          maxWidth: 1180,
+          maxWidth: 1280,
           margin: "0 auto",
-          padding: "16px 18px",
+          padding: "14px 14px",
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
           gap: 14,
+          overflowX: "auto",
+          WebkitOverflowScrolling: "touch",
+          scrollbarWidth: "none",
         }}
+        className="energon-scrollbar"
       >
         <button
           onClick={openQori}
-          title={`Open Q.O.R.I · ${guardianState}`}
+          title="Open Q.O.R.I"
           aria-label="Open Q.O.R.I"
           style={{
             "--protocol-glow-low": glowLow,
             "--protocol-glow-high": glowHigh,
+
+            flexShrink: 0,
             display: "inline-flex",
             alignItems: "center",
-            padding: "10px 14px",
-            borderRadius: 16,
+            justifyContent: "center",
+
+            padding: "12px 18px",
+            minWidth: 250,
+
+            borderRadius: 18,
             border: `1px solid ${protocolColor}`,
+
             background:
-              "linear-gradient(180deg, rgba(20,30,60,.42), rgba(8,14,28,.66))",
+              "linear-gradient(180deg, rgba(20,30,60,.42), rgba(8,14,28,.68))",
+
             boxShadow: shouldPulse ? undefined : glowLow,
+
             animation: shouldPulse
-              ? "protocolSoftPulse 4.8s ease-in-out infinite"
+              ? "protocolGlowPulse 4.6s ease-in-out infinite"
               : "none",
+
             cursor: "pointer",
+
             transition:
-              "box-shadow 1.2s ease, border-color 1.2s ease, opacity 1.2s ease, transform 1.2s ease",
+              "transform .35s ease, box-shadow .35s ease, border-color .35s ease",
           }}
         >
           <span
             style={{
               fontSize: 12,
-              letterSpacing: "0.22em",
+              letterSpacing: ".34em",
               textTransform: "uppercase",
               color:
-                isCoherent || isFractured
-                  ? "rgba(230,244,255,.95)"
-                  : "rgba(150,158,172,.62)",
+                stateKey === "coherent"
+                  ? "rgba(220,255,248,.96)"
+                  : stateKey === "fractured"
+                  ? "rgba(255,225,235,.96)"
+                  : "rgba(205,215,230,.74)",
+
               fontWeight: 800,
-              textShadow: shouldPulse ? `0 0 10px ${protocolColor}` : "none",
+
               whiteSpace: "nowrap",
+
+              textShadow:
+                stateKey === "coherent"
+                  ? "0 0 10px rgba(80,255,210,.32)"
+                  : stateKey === "fractured"
+                  ? "0 0 10px rgba(255,70,105,.32)"
+                  : "0 0 6px rgba(180,190,210,.12)",
             }}
           >
-            Energon Protocol
+            ENERGON PROTOCOL
           </span>
         </button>
 
         <div
           style={{
+            flexShrink: 0,
+
             display: "flex",
+            alignItems: "center",
             gap: 10,
+
             padding: 6,
+
             borderRadius: 18,
+
             border: "1px solid rgba(120,170,255,.18)",
+
             background:
-              "linear-gradient(180deg, rgba(20,30,60,.58), rgba(8,14,28,.72))",
+              "linear-gradient(180deg, rgba(20,30,60,.58), rgba(8,14,28,.76))",
           }}
         >
           {tabs.map(({ href, label }) => {
@@ -217,20 +243,47 @@ export default function Nav() {
                 href={href}
                 style={{
                   position: "relative",
-                  padding: "10px 18px",
+
+                  flexShrink: 0,
+
+                  padding: "12px 22px",
+
                   borderRadius: 14,
+
                   textDecoration: "none",
+
                   fontSize: 15,
                   fontWeight: 700,
-                  color: active ? "#fff4cc" : "rgba(220,232,255,.86)",
+
+                  whiteSpace: "nowrap",
+
+                  color: active
+                    ? "#fff4cc"
+                    : "rgba(220,232,255,.86)",
+
                   border: active
                     ? "1px solid rgba(255,220,120,.42)"
                     : "1px solid transparent",
-                  boxShadow: active
-                    ? "0 0 18px rgba(255,200,90,.26), inset 0 0 14px rgba(255,220,140,.12)"
+
+                  background: active
+                    ? "linear-gradient(110deg, rgba(255,210,90,0.22) 0%, rgba(255,240,170,0.40) 40%, rgba(255,210,90,0.22) 60%)"
+                    : "transparent",
+
+                  backgroundSize: active ? "200% 100%" : undefined,
+
+                  animation: active
+                    ? "navShimmer 7s linear infinite"
                     : "none",
+
+                  boxShadow: active
+                    ? "0 0 18px rgba(255,200,90,.22), inset 0 0 14px rgba(255,220,140,.10)"
+                    : "none",
+
+                  textShadow: active
+                    ? "0 0 12px rgba(255,225,150,.32)"
+                    : "0 0 8px rgba(140,170,255,.10)",
+
                   transition: "all .22s ease",
-                  ...(active ? shimmerStyle : {}),
                 }}
               >
                 {label}
