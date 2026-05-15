@@ -151,6 +151,7 @@ export default function Nav() {
           padding: "14px 14px",
           display: "flex",
           alignItems: "center",
+          justifyContent: "space-between",
           gap: 14,
           overflowX: "auto",
           WebkitOverflowScrolling: "touch",

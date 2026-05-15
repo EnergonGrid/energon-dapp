@@ -269,12 +269,18 @@ export default function QoriNode({ hideOrb = true } = {}) {
     }
   }
 
+  function shouldHoldReturnMenu() {
+    return !!inputRef.current?.value?.trim();
+  }
+
   function scheduleReturnToMenu(delay = 10000) {
     if (!landingMode) return;
 
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
+      if (shouldHoldReturnMenu()) return;
+
       setPendingLandingAction(null);
       setPendingGridEntry(false);
       setThinking(false);
@@ -288,8 +294,25 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
+      if (shouldHoldReturnMenu()) return;
+
       transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
     }, delay);
+  }
+
+  function resetReturnMenuAfterTyping(nextValue = "") {
+    clearReturnMenuTimer();
+
+    returnMenuRef.current = setTimeout(() => {
+      if (String(nextValue).trim()) return;
+      if (inputRef.current?.value?.trim()) return;
+
+      if (landingMode) {
+        transmit(landingMenuWithPrompt() + "\n\n_", 24, undefined, "system");
+      } else {
+        transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
+      }
+    }, 10000);
   }
 
   function transmit(text, speed = 32, onDone, tone = "system") {
@@ -856,6 +879,8 @@ It advances when conditions are met.`
           () => {
             if (nextCtx.guardianState === "COHERENT") {
               setTimeout(() => {
+                if (shouldHoldReturnMenu()) return;
+
                 transmit(
                   coherentMenuWithPrompt() + "\n\n_",
                   30,
@@ -867,6 +892,8 @@ It advances when conditions are met.`
 
             if (nextCtx.guardianState === "NO KEY") {
               setTimeout(() => {
+                if (shouldHoldReturnMenu()) return;
+
                 setPendingGridEntry(true);
                 transmit(GRID_ENTRY_PROMPT + "\n\n_", 30, undefined, "system");
               }, 10000);
@@ -943,6 +970,7 @@ It advances when conditions are met.`
       if (q === "1" || q === "yes" || q === "y") {
         setPendingGridEntry(false);
         setInput("");
+        clearReturnMenuTimer();
         openLandingUrl("https://energon-dapp.vercel.app/mint");
         return;
       }
@@ -951,6 +979,7 @@ It advances when conditions are met.`
         setPendingGridEntry(false);
         setInput("");
         setThinking(true);
+        clearReturnMenuTimer();
         transmit(
           landingMenuWithPrompt() + "\n\n_",
           30,
@@ -1034,36 +1063,36 @@ It advances when conditions are met.`
   return (
     <>
       {!hideOrb && (
-      <button
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onTouchStart={() => setHovered(true)}
-        onTouchEnd={() => setHovered(false)}
-        onClick={openQoriNode}
-        aria-label="Open Q.O.R.I"
-        title={`Q.O.R.I: ${ctx.guardianState || "ONLINE"}`}
-        style={{
-          position: "fixed",
-          top: 34,
-          left: 24,
-          width: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
-          height: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
-          opacity: walletPromptGlow ? 1 : hovered ? 1 : silent ? 0.18 : 0.28,
-          borderRadius: "50%",
-          border: visuals.border,
-          background:
-            walletPromptGlow || hovered
-              ? visuals.color
-              : "rgba(47,212,255,0.08)",
-          boxShadow: walletPromptGlow
-            ? `${visuals.shadow}, 0 0 28px ${visuals.color}, 0 0 58px ${visuals.color}`
-            : visuals.shadow,
-          transform: `scale(${pulse})`,
-          transition: "all 2.2s ease-in-out",
-          zIndex: 9999,
-          cursor: "pointer",
-        }}
-      />
+        <button
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
+          onTouchStart={() => setHovered(true)}
+          onTouchEnd={() => setHovered(false)}
+          onClick={openQoriNode}
+          aria-label="Open Q.O.R.I"
+          title={`Q.O.R.I: ${ctx.guardianState || "ONLINE"}`}
+          style={{
+            position: "fixed",
+            top: 34,
+            left: 24,
+            width: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
+            height: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
+            opacity: walletPromptGlow ? 1 : hovered ? 1 : silent ? 0.18 : 0.28,
+            borderRadius: "50%",
+            border: visuals.border,
+            background:
+              walletPromptGlow || hovered
+                ? visuals.color
+                : "rgba(47,212,255,0.08)",
+            boxShadow: walletPromptGlow
+              ? `${visuals.shadow}, 0 0 28px ${visuals.color}, 0 0 58px ${visuals.color}`
+              : visuals.shadow,
+            transform: `scale(${pulse})`,
+            transition: "all 2.2s ease-in-out",
+            zIndex: 9999,
+            cursor: "pointer",
+          }}
+        />
       )}
 
       {open && (
@@ -1234,10 +1263,15 @@ It advances when conditions are met.`
                 ref={inputRef}
                 value={input}
                 disabled={thinking || isTyping}
-                onFocus={resetSilentTimer}
-                onChange={(e) => {
+                onFocus={() => {
                   resetSilentTimer();
-                  setInput(e.target.value);
+                  clearReturnMenuTimer();
+                }}
+                onChange={(e) => {
+                  const nextValue = e.target.value;
+                  resetSilentTimer();
+                  setInput(nextValue);
+                  resetReturnMenuAfterTyping(nextValue);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") sendMessage();

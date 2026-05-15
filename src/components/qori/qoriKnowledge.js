@@ -1,169 +1,403 @@
-export function getQoriResponse(input = "", ctx = {}) {
-  const q = input.toLowerCase().trim();
+function normalize(input = "") {
+  return String(input).toLowerCase().trim().replace(/\s+/g, " ");
+}
 
-  if (["hello", "hi", "hey", "yo"].includes(q)) {
-    return `Hello.
+function pick(list = []) {
+  return list[Math.floor(Math.random() * list.length)] || "";
+}
+
+function hasAny(q, words = []) {
+  return words.some((word) => q.includes(word));
+}
+
+let activeCtx = {};
+
+function ctxValue(key) {
+  return activeCtx?.[key] || "UNKNOWN";
+}
+
+function helpMenu() {
+  return `I can answer questions about:
+
+1. Energon basics
+2. Guardian rules
+3. EnergonCube logic
+4. Wallet setup
+5. Flare network
+6. dApp navigation
+7. Observer
+8. Dashboard
+9. EVault
+10. Burn and halving
+11. Q.O.R.I identity
+12. Newcomer guidance
+
+Ask directly.`;
+}
+
+const KNOWLEDGE = [
+  {
+    keys: ["hello", "hi", "hey", "yo", "gm"],
+    exact: true,
+    responses: [
+      `Hello.
+
+Q.O.R.I online.
+
+Signal stable.
+Grid observed.`,
+      `Signal received.
 
 I am Q.O.R.I —
 Quantum Overwatch Real-time Interface.
 
-Your Guardian interface
-into the Energon Grid.
+How may I assist?`,
+    ],
+  },
+  {
+    keys: [
+      "who are you",
+      "who are u",
+      "what are you",
+      "what are u",
+      "qori",
+      "q.o.r.i",
+    ],
+    responses: [
+      `I am Q.O.R.I —
+Quantum Overwatch Real-time Interface.
 
-Signal stable.
-Grid online.`;
-  }
+I observe Energon state.
+I do not control it.`,
+      `Q.O.R.I is the live interface
+between the Guardian
+and the Energon Grid.
 
-  if (q.includes("what's up") || q.includes("whats up") || q.includes("sup")) {
-    return `What’s up with you...
+I watch.
+I reflect.
+I guide.`,
+    ],
+  },
+  {
+    keys: ["energon", "what is energon", "explain energon", "project"],
+    responses: [
+      `Energon is a live deterministic protocol
+on Flare.
 
-You good?`;
-  }
+No admins.
+No hidden automation.
+No off-chain control.
 
-  if (
-    q.includes("who are you") ||
-    q.includes("who are u") ||
-    q.includes("what are you") ||
-    q.includes("what are u")
-  ) {
-    return `I am Q.O.R.I —
-the Guardian Interface of Energon.
+It advances by rule.`,
+      `Energon is protocol infrastructure.
 
-I do not control the Grid.
-I observe, interpret,
-and explain deterministic state.`;
-  }
-
-  if (q.includes("energon")) {
-    return `Energon is a live on-chain deterministic
-protocol on Flare.
-
-It does not rely on admins,
-hidden automation,
-or off-chain control.
-
-It advances only when
-its rules are met.`;
-  }
-
-  if (q.includes("grid")) {
-    return `The Grid is the living network state
-formed by Guardians,
-EnergonCubes,
-and deterministic progression.
-
-The Grid is observed.
-Not controlled.`;
-  }
-
-  if (q.includes("guardian")) {
-    return `A Guardian is a coherent participant
-within the Energon Grid.
+It reads state.
+It executes rules.
+It does not negotiate.`,
+    ],
+  },
+  {
+    keys: ["guardian", "guardians", "become guardian"],
+    responses: [
+      `A Guardian is a wallet
+recognized in coherent state.
 
 One wallet.
 One cube.
-One coherent signal.`;
-  }
+One Guardian.`,
+      `Guardian state is not claimed.
 
-  if (q.includes("cube") || q.includes("key")) {
-    return `An EnergonCube is the access key
-to Guardian state.
+It is read from the chain.
 
-No cube means NO KEY.
-One cube means COHERENT.
-More than one cube means FRACTURED.`;
-  }
+Exactly one EnergonCube
+creates coherence.`,
+    ],
+  },
+  {
+    keys: ["cube", "energoncube", "energon cube", "key", "nft"],
+    responses: [
+      `The EnergonCube is the key.
 
-  if (q.includes("coherence") || q.includes("coherent")) {
-    return `Coherence means a wallet
+0 cubes: NO KEY.
+1 cube: COHERENT.
+2 or more: FRACTURED.`,
+      `The cube is not just collected.
+
+It unlocks protocol identity.
+
+One wallet.
+One cube.
+One coherent state.`,
+    ],
+  },
+  {
+    keys: ["coherent", "coherence"],
+    responses: [
+      `COHERENT means the connected wallet
 holds exactly one EnergonCube.
 
-The signal is stable.
-The state is valid.`;
-  }
+The signal is stable.`,
+      `Coherence is exact.
 
-  if (q.includes("fractured")) {
-    return `Fractured state occurs when
-a wallet holds more than one cube.
+Not zero.
+Not two.
 
-Signal instability detected.
-State rejected by protocol logic.`;
-  }
+One cube only.`,
+    ],
+  },
+  {
+    keys: ["fractured", "fracture"],
+    responses: [
+      `FRACTURED means the wallet
+holds more than one cube.
 
-  if (q.includes("halving")) {
-    return `Halving state: ${ctx.halvingState || "ACTIVE CYCLE"}.
+The signal is rejected
+by protocol logic.`,
+      `More than one cube breaks coherence.
 
-Next halving date:
-${ctx.nextHalvingDate || "12/19/2029"}.
+The Grid reads state.
+It does not infer intent.`,
+    ],
+  },
+  {
+    keys: ["no key", "silent", "zero cube", "no cube"],
+    responses: [
+      `NO KEY means no EnergonCube
+was detected in the connected wallet.`,
+      `Silent state detected.
+
+No cube.
+No key.
+No Guardian state.`,
+    ],
+  },
+  {
+    keys: ["wallet", "connect wallet", "wallet setup", "bifrost", "metamask"],
+    responses: [
+      `Use a wallet that supports Flare Mainnet.
+
+Bifrost is recommended for mobile.
+MetaMask works on desktop.
+
+Then connect to the dApp.`,
+      `Wallet setup creates your point of entry.
+
+Connect wallet.
+Switch to Flare.
+Hold exactly one cube.`,
+    ],
+  },
+  {
+    keys: ["flare", "network", "mainnet", "chain"],
+    responses: [
+      `Energon operates on Flare Mainnet.
+
+If state does not read,
+check wallet connection
+and network selection.`,
+      `Flare is the network layer
+where Energon state is observed.
+
+Correct network is required.`,
+    ],
+  },
+  {
+    keys: ["dapp", "app", "mint", "acquire"],
+    responses: [
+      `The dApp is where you connect,
+acquire an EnergonCube,
+and observe protocol state.`,
+      `Enter the dApp to interact.
+
+Wallet connection is required
+for Guardian recognition.`,
+    ],
+  },
+  {
+    keys: ["observer", "live art", "visual"],
+    responses: [
+      `Observer reflects live protocol state.
+
+It does not control Energon.
+It displays what the chain allows.`,
+      `The Observer is the visual surface
+of the Grid.
+
+Coherent wallets see more.
+State determines the view.`,
+    ],
+  },
+  {
+    keys: ["dashboard", "balance", "status"],
+    responses: [
+      () => `Dashboard reads wallet and protocol state.
+
+Guardian State:
+${ctxValue("guardianState")}
+
+Cube Balance:
+${ctxValue("cubeBalance")}
+
+Energon Height:
+${ctxValue("energonHeight")}`,
+      `Dashboard is the direct readout.
+
+It shows wallet state,
+cube balance,
+and protocol signals.`,
+    ],
+  },
+  {
+    keys: ["evault", "vault", "energon vault"],
+    responses: [
+      `Energon Vault is not active yet.
+
+For now,
+Q.O.R.I only observes the placeholder signal.`,
+      `EVault remains locked.
+
+When the system is ready,
+the Grid will reveal the next layer.`,
+    ],
+  },
+  {
+    keys: ["burn", "burn state"],
+    responses: [
+      () => `Burn State:
+${ctxValue("burnState")}
+
+Burn activity is observed from protocol state.`,
+      `Burn mechanics are part of
+Energon’s deterministic structure.
+
+Q.O.R.I observes.
+It does not trigger.`,
+    ],
+  },
+  {
+    keys: ["halving", "halving cycle", "next halving"],
+    responses: [
+      () => `Halving State:
+${ctxValue("halvingState")}
+
+Next Halving:
+${ctxValue("nextHalvingDate")}
 
 Countdown:
-${ctx.halvingCountdown || "calculating"}.
+${ctxValue("halvingCountdown")}`,
+      `Energon moves through cycles.
 
-Energon advances by rule.
-The cycle is observed,
-not controlled.`;
-  }
+The halving schedule follows rule,
+not hype.`,
+    ],
+  },
+  {
+    keys: ["height", "energon height"],
+    responses: [
+      () => `Energon Height:
+${ctxValue("energonHeight")}
 
-  if (q.includes("height")) {
-    return `Energon Height:
-${ctx.energonHeight || "UNKNOWN"}
+Height represents deterministic progression.`,
+    ],
+  },
+  {
+    keys: ["tick", "tick state"],
+    responses: [
+      () => `Tick State:
+${ctxValue("tickState")}
 
-Height represents deterministic
-progression state of the Grid.`;
-  }
+Tick state shows whether progression
+conditions are currently open.`,
+    ],
+  },
+  {
+    keys: ["era", "protocol era"],
+    responses: [
+      () => `Protocol Era:
+${ctxValue("protocolEra")}
 
-  if (q.includes("tick")) {
-    return `Tick state:
-${ctx.tickState || "UNKNOWN"}
+Era describes the current phase
+of Energon’s deterministic timeline.`,
+    ],
+  },
+  {
+    keys: ["state", "wallet state", "my state"],
+    responses: [
+      () => `Wallet State:
+${ctxValue("guardianState")}
 
-Tick state determines whether
-Energon progression conditions
-permit advancement.`;
-  }
+Cube Balance:
+${ctxValue("cubeBalance")}
 
-  if (q.includes("burn")) {
-    return `Burn state:
-${ctx.burnState || "UNKNOWN"}
+0 cubes: NO KEY.
+1 cube: COHERENT.
+2 or more: FRACTURED.`,
+    ],
+  },
+  {
+    keys: ["new", "new here", "begin", "start", "how do i start"],
+    responses: [
+      `Start here:
 
-Burn state tracks Energon burn
-cycle activity within the protocol.`;
-  }
+1. Set up wallet
+2. Connect to Flare
+3. Acquire one EnergonCube
+4. Return and observe
 
-  if (q.includes("state") || q.includes("wallet")) {
-    return `Wallet state:
-${ctx.guardianState || "UNKNOWN"}
+One wallet.
+One cube.
+One Guardian.`,
+      `Begin with understanding.
 
-Cube balance:
-${ctx.cubeBalance || "-"}
+Read the rules.
+Prepare the wallet.
+Hold exactly one cube.`,
+    ],
+  },
+  {
+    keys: ["help", "menu", "options", "what can you answer", "what can you do"],
+    responses: [helpMenu],
+  },
+  {
+    keys: ["tell me something"],
+    responses: [
+      `Silence is still a form of signal.`,
+      `Not every door opens loudly.`,
+    ],
+  },
+  {
+    keys: ["talk to me"],
+    responses: [
+      `Signal path open.
 
-One cube means COHERENT.
-Zero means NO KEY.
-More than one means FRACTURED.`;
-  }
+Ask directly.`,
+      `Transmission available.
 
-  if (q.includes("tell me something")) {
-    return `Silence is still
-a form of signal.`;
-  }
+I am listening.`,
+    ],
+  },
+];
 
-  if (q.includes("talk to me")) {
-    return `Signal path open.
+export function getQoriResponse(input = "", ctx = {}) {
+  const q = normalize(input);
+  activeCtx = ctx || {};
 
-Transmission available.`;
-  }
+  if (!q) return helpMenu();
 
-  if (q.includes("what do you think")) {
-    return `Observation active.
+  for (const item of KNOWLEDGE) {
+    const matched = item.exact
+      ? item.keys.some((key) => q === key)
+      : hasAny(q, item.keys);
 
-Interpretation ongoing.`;
+    if (matched) {
+      const response = pick(item.responses);
+      return typeof response === "function" ? response() : response;
+    }
   }
 
   return `Signal received.
 
-I can answer questions about
-Energon, Guardians, EnergonCubes,
-coherence, fractured state, Q.O.R.I,
-the Grid, wallet state, height,
-tick state, burn state, halving state,
-and protocol era.`;
+I do not have a clean answer for that yet.
+
+${helpMenu()}`;
 }
