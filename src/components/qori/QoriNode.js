@@ -369,28 +369,30 @@ export default function QoriNode({ hideOrb = true } = {}) {
     if (pendingGridEntry) {
       if (q === "1" || q === "yes" || q === "y") {
         setPendingGridEntry(false);
-      
+        setInput("");
+        setThinking(true);
+    
         answerLanding(
-      `Entry into the Energon Grid
-      requires acquisition of an EnergonCube.
-      
-      The EnergonCube is the access key
-      recognized by the protocol.
-      
-      No cube means NO KEY.
-      One cube means COHERENT.
-      More than one cube means FRACTURED.
-      
-      One wallet.
-      One cube.
-      One Guardian.
-      
-      Opening acquisition interface...`,
+    `Entry into the Energon Grid
+    requires acquisition of an EnergonCube.
+    
+    The EnergonCube is the access key
+    recognized by the protocol.
+    
+    No cube means NO KEY.
+    One cube means COHERENT.
+    More than one cube means FRACTURED.
+    
+    One wallet.
+    One cube.
+    One Guardian.
+    
+    Opening acquisition interface...`,
           "system",
           () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
           false
         );
-      
+    
         return;
       }
 
