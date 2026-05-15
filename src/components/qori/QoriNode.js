@@ -371,9 +371,10 @@ export default function QoriNode({ hideOrb = true } = {}) {
         setPendingGridEntry(false);
         setInput("");
         setThinking(true);
+        clearReturnMenuTimer();
     
         answerLanding(
-    `Entry into the Energon Grid
+          `Entry into the Energon Grid
     requires acquisition of an EnergonCube.
     
     The EnergonCube is the access key
@@ -395,15 +396,25 @@ export default function QoriNode({ hideOrb = true } = {}) {
     
         return;
       }
-
+    
       if (q === "2" || q === "no" || q === "n") {
         setPendingGridEntry(false);
-        answerLanding(landingMenuWithPrompt(), "system", undefined, false);
+        setInput("");
+        setThinking(true);
+        clearReturnMenuTimer();
+    
+        transmit(
+          landingMenuWithPrompt() + "\n\n_",
+          30,
+          () => {
+            setThinking(false);
+            setTimeout(() => inputRef.current?.focus(), 50);
+          },
+          "system"
+        );
+    
         return;
       }
-
-      answerLanding(GRID_ENTRY_PROMPT, "system", undefined, false);
-      return;
     }
 
     if (
