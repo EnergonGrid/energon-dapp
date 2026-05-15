@@ -993,16 +993,39 @@ It advances when conditions are met.`
       if (q === "1" || q === "yes" || q === "y") {
         setPendingGridEntry(false);
         setInput("");
+        setThinking(true);
         clearReturnMenuTimer();
-        openLandingUrl("https://energon-dapp.vercel.app/mint");
+    
+        answerLanding(
+          `Entry into the Energon Grid
+    requires acquisition of an EnergonCube.
+    
+    The EnergonCube is the access key
+    recognized by the protocol.
+    
+    No cube means NO KEY.
+    One cube means COHERENT.
+    More than one cube means FRACTURED.
+    
+    One wallet.
+    One cube.
+    One Guardian.
+    
+    Opening acquisition interface...`,
+          "system",
+          () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
+          false
+        );
+    
         return;
       }
-
+    
       if (q === "2" || q === "no" || q === "n") {
         setPendingGridEntry(false);
         setInput("");
         setThinking(true);
         clearReturnMenuTimer();
+    
         transmit(
           landingMenuWithPrompt() + "\n\n_",
           30,
@@ -1012,6 +1035,7 @@ It advances when conditions are met.`
           },
           "system"
         );
+    
         return;
       }
     }
