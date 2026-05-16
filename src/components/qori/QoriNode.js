@@ -391,97 +391,32 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }
 
   function showVisitorGridPrompt() {
-    clearReturnMenuTimer();
-    clearVisitorAppendTimer();
-    setPendingGridEntry(true);
+  clearReturnMenuTimer();
+  clearVisitorAppendTimer();
+  setPendingLandingAction(null);
+  setPendingGridEntry(true);
 
-    const visitorLandingText = `${randomLandingPrompt()}
-
-${GRID_ENTRY_PROMPT}`;
-
-    transmit(
-      visitorLandingText + "\n\n_",
-      30,
-      () => {
-        setTimeout(() => inputRef.current?.focus(), 50);
-
-        visitorAppendRef.current = setTimeout(() => {
-          if (shouldHoldReturnMenu()) {
-            showVisitorGridPrompt();
-            return;
-          }
-
-          transmit(
-            `${visitorLandingText}
-
-${VISITOR_GRID_ENTRY_APPEND}
-
-_`,
-            30,
-            () => {
-              setTimeout(() => inputRef.current?.focus(), 50);
-              scheduleReturnToMenu(10000);
-            },
-            "system"
-          );
-        }, 10000);
-      },
-      "system"
-    );
-  }
+  transmit(
+    GRID_ENTRY_PROMPT + "\n\n_",
+    30,
+    () => {
+      setTimeout(() => inputRef.current?.focus(), 50);
+      scheduleReturnToMenu(10000);
+    },
+    "system"
+  );
+}
 
   function handleVisitorGridChoice(q) {
-    if (q === "1" || q.includes("energon basic")) {
-      setPendingGridEntry(true);
-      answerLanding(
-        `ENERGON BASICS
+  if (q === "1" || q === "yes" || q === "y") {
+    setPendingGridEntry(false);
+    setInput("");
+    setThinking(true);
+    clearReturnMenuTimer();
+    clearVisitorAppendTimer();
 
-Energon is a live deterministic protocol on Flare.
-
-It does not rely on admins,
-hidden automation,
-or off-chain control.
-
-The system advances only when
-its rules are met.
-
-One wallet.
-One cube.
-One Guardian.`
-      );
-      return true;
-    }
-
-    if (q === "2" || q.includes("system status") || q.includes("status")) {
-      setPendingGridEntry(true);
-      answerLanding(
-        `PUBLIC SYSTEM STATUS
-
-Interface: Visitor
-Live wallet data: Locked
-Guardian state: Requires one EnergonCube
-Protocol access: Public guide only
-
-Visitors can learn,
-prepare a wallet,
-read the documents,
-and enter the dApp.
-
-Live protocol reads unlock
-inside the Guardian interface.`
-      );
-      return true;
-    }
-
-    if (q === "3" || q === "yes" || q === "y") {
-      setPendingGridEntry(false);
-      setInput("");
-      setThinking(true);
-      clearReturnMenuTimer();
-      clearVisitorAppendTimer();
-
-      answerLanding(
-        `Entry into the Energon Grid
+    answerLanding(
+      `Entry into the Energon Grid
 requires acquisition of an EnergonCube.
 
 The EnergonCube is the access key
@@ -496,24 +431,23 @@ One cube.
 One Guardian.
 
 Opening acquisition interface...`,
-        "system",
-        () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
-        false
-      );
+      "system",
+      () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
+      false
+    );
 
-      return true;
-    }
-
-    if (q === "2" || q === "4" || q === "no" || q === "n") {
-      setPendingGridEntry(false);
-      setInput("");
-      showKnowledgeMenu();
-
-      return true;
-    }
-
-    return false;
+    return true;
   }
+
+  if (q === "2" || q === "no" || q === "n") {
+    setPendingGridEntry(false);
+    setInput("");
+    showKnowledgeMenu();
+    return true;
+  }
+
+  return false;
+}
 
   function handleLandingMessage(cleanInput) {
     const q = normalizeLandingInput(cleanInput);
@@ -521,14 +455,7 @@ Opening acquisition interface...`,
     if (pendingGridEntry) {
       if (handleVisitorGridChoice(q)) return;
 
-      answerLanding(
-        `${GRID_ENTRY_PROMPT}
-
-${VISITOR_GRID_ENTRY_APPEND}`,
-        "system",
-        undefined,
-        false
-      );
+      answerLanding(GRID_ENTRY_PROMPT, "system", undefined, false);
       return;
     }
 
@@ -1401,7 +1328,7 @@ It advances when conditions are met.`
                   thinking || isTyping
                     ? "Q.O.R.I transmitting..."
                     : isVisitorFlow()
-                    ? "Type 1, 2, 3, or 4..."
+                    ? "Type 1 or 2..."
                     : "Ask Q.O.R.I..."
                 }
                 style={{
