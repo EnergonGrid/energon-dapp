@@ -241,7 +241,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }, [landingMode]);
 
   const visuals = getStateVisuals(ctx.guardianState, silent);
-  const activeTextColor = displayTone === "echo" ? "#ffcf6b" : visuals.color;
+  const activeTextColor =
+    displayTone === "echo" ? "#ffcf6b" : isVisitorFlow() ? "#1ec8ff" : visuals.color;
 
   const activeTextShadow =
     displayTone === "echo"
@@ -281,7 +282,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }
 
   function scheduleReturnToMenu(delay = 10000) {
-    if (!landingMode) return;
+    if (!isVisitorFlow()) return;
 
     clearReturnMenuTimer();
 
@@ -387,21 +388,24 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearVisitorAppendTimer();
     setPendingGridEntry(true);
 
+    const visitorLandingText = `${randomLandingPrompt()}
+
+${VISITOR_GRID_PROMPT}`;
+
     transmit(
-      VISITOR_GRID_PROMPT + "\n\n_",
+      visitorLandingText + "\n\n_",
       30,
       () => {
         setTimeout(() => inputRef.current?.focus(), 50);
 
         visitorAppendRef.current = setTimeout(() => {
-          
           if (shouldHoldReturnMenu()) {
             showVisitorGridPrompt();
             return;
           }
 
           transmit(
-            `${VISITOR_GRID_PROMPT}
+            `${visitorLandingText}
 
 ${VISITOR_GRID_ENTRY_APPEND}
 
@@ -409,6 +413,7 @@ _`,
             30,
             () => {
               setTimeout(() => inputRef.current?.focus(), 50);
+              scheduleReturnToMenu(10000);
             },
             "system"
           );
@@ -493,19 +498,10 @@ Opening acquisition interface...`,
     if (q === "4" || q === "no" || q === "n") {
       setPendingGridEntry(false);
       setInput("");
-      setThinking(true);
+      setThinking(false);
       clearReturnMenuTimer();
       clearVisitorAppendTimer();
-
-      transmit(
-        landingMenuWithPrompt() + "\n\n_",
-        30,
-        () => {
-          setThinking(false);
-          setTimeout(() => inputRef.current?.focus(), 50);
-        },
-        "system"
-      );
+      showVisitorGridPrompt();
 
       return true;
     }
@@ -1296,7 +1292,12 @@ It advances when conditions are met.`
                 marginBottom: 14,
                 fontSize: 11,
                 letterSpacing: 3,
-                color: visuals.color,
+                color:
+                  displayTone === "echo"
+                    ? "#ffcf6b"
+                    : isVisitorFlow()
+                    ? "#1ec8ff"
+                    : visuals.color,
                 opacity: 0.9,
               }}
             >
