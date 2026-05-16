@@ -334,7 +334,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       if (inputRef.current?.value?.trim()) return;
 
       if (isVisitorFlow()) {
-        showVisitorGridPrompt();
+        showKnowledgeMenu();
       } else {
         transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
       }
