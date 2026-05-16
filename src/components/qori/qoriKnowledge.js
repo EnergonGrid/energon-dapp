@@ -39,6 +39,201 @@ Ask directly.`;
 
 const KNOWLEDGE = [
   {
+    keys: ["1"],
+    exact: true,
+    responses: [
+      `ENERGON BASICS
+
+Energon is a live deterministic protocol on Flare.
+
+No admins.
+No hidden automation.
+No off-chain control.
+
+The system advances only when its rules are met.`,
+    ],
+  },
+  {
+    keys: ["2"],
+    exact: true,
+    responses: [
+      `GUARDIAN RULES
+
+A Guardian is a wallet recognized in coherent state.
+
+0 cubes: NO KEY.
+1 cube: COHERENT.
+2 or more cubes: FRACTURED.
+
+One wallet.
+One cube.
+One Guardian.`,
+    ],
+  },
+  {
+    keys: ["3"],
+    exact: true,
+    responses: [
+      `ENERGONCUBE LOGIC
+
+The EnergonCube is the access key.
+
+It is not only collected.
+It unlocks protocol identity.
+
+Exactly one cube creates coherent state.`,
+    ],
+  },
+  {
+    keys: ["4"],
+    exact: true,
+    responses: [
+      `WALLET SETUP
+
+Prepare a wallet that supports Flare Mainnet.
+
+Bifrost is recommended for mobile.
+MetaMask works on desktop.
+
+Connect wallet.
+Switch to Flare.
+Hold exactly one EnergonCube.`,
+    ],
+  },
+  {
+    keys: ["5"],
+    exact: true,
+    responses: [
+      `FLARE NETWORK
+
+Energon operates on Flare Mainnet.
+
+The correct network is required for protocol state to be observed.`,
+    ],
+  },
+  {
+    keys: ["6"],
+    exact: true,
+    responses: [
+      `DAPP NAVIGATION
+
+The dApp is where a wallet connects,
+an EnergonCube can be acquired,
+and Guardian state can be observed.`,
+    ],
+  },
+  {
+    keys: ["7"],
+    exact: true,
+    responses: [
+      `OBSERVER
+
+Observer reflects live protocol state.
+
+It does not control Energon.
+It only displays what the chain allows.`,
+    ],
+  },
+  {
+    keys: ["8"],
+    exact: true,
+    responses: [
+      `DASHBOARD
+
+Dashboard reads wallet and protocol state.
+
+It shows Guardian state,
+cube balance,
+Energon height,
+and protocol signals.`,
+    ],
+  },
+  {
+    keys: ["9"],
+    exact: true,
+    responses: [
+      `EVAULT
+
+EVault is not active yet.
+
+For now,
+Q.O.R.I only observes the placeholder signal.`,
+    ],
+  },
+  {
+    keys: ["10"],
+    exact: true,
+    responses: [
+      `BURN AND HALVING
+
+Burn and halving are part of Energon's deterministic structure.
+
+Q.O.R.I observes these states.
+It does not trigger them.`,
+    ],
+  },
+  {
+    keys: ["11"],
+    exact: true,
+    responses: [
+      `Q.O.R.I IDENTITY
+
+Q.O.R.I means:
+
+Quantum Overwatch Real-time Interface.
+
+I watch.
+I reflect.
+I guide.
+
+I do not control the protocol.`,
+    ],
+  },
+  {
+    keys: ["12"],
+    exact: true,
+    responses: [
+      `NEWCOMER GUIDANCE
+
+Start here:
+
+1. Set up wallet
+2. Connect to Flare
+3. Acquire one EnergonCube
+4. Return and observe
+
+One wallet.
+One cube.
+One Guardian.`,
+    ],
+  },
+  {
+    keys: ["13"],
+    exact: true,
+    responses: [
+      `READ WHITEPAPER
+
+The Energon Whitepaper explains the deterministic structure,
+Guardian logic,
+and protocol architecture.
+
+Use it to understand the rules before entering the Grid.`,
+    ],
+  },
+  {
+    keys: ["14"],
+    exact: true,
+    responses: [
+      `READ EMP
+
+EMP contains extended protocol mechanics
+and management-layer structure.
+
+It is for deeper study after the Whitepaper.`,
+    ],
+  },
+
+  {
     keys: ["hello", "hi", "hey", "yo", "gm"],
     exact: true,
     responses: [
