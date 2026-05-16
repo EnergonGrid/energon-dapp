@@ -134,6 +134,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const [pendingLandingAction, setPendingLandingAction] = useState(null);
   const [pendingGridEntry, setPendingGridEntry] = useState(false);
   const [walletPromptGlow, setWalletPromptGlow] = useState(false);
+  const [visitorKnowledgeMode, setVisitorKnowledgeMode] = useState(false);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -228,7 +229,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       setIsTyping(false);
       stopTyping(typingRef);
       clearVisitorAppendTimer();
-      transmit(landingMenuWithPrompt() + "\n\n_", 18, undefined, "system");
+      showVisitorGridPrompt();
     };
 
     window.addEventListener("pageshow", resetOnBack);
@@ -273,6 +274,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearVisitorAppendTimer();
     setPendingLandingAction(null);
     setPendingGridEntry(false);
+    setVisitorKnowledgeMode(true);
     setThinking(false);
 
     transmit(
@@ -394,14 +396,17 @@ export default function QoriNode({ hideOrb = true } = {}) {
   clearReturnMenuTimer();
   clearVisitorAppendTimer();
   setPendingLandingAction(null);
+  setVisitorKnowledgeMode(false);
   setPendingGridEntry(true);
 
   transmit(
     GRID_ENTRY_PROMPT + "\n\n_",
     30,
     () => {
-      setTimeout(() => inputRef.current?.focus(), 50);
-      scheduleReturnToMenu(10000);
+      setTimeout(() => {
+        inputRef.current?.focus();
+        scheduleReturnToMenu(10000);
+      }, 50);
     },
     "system"
   );
@@ -468,7 +473,7 @@ Opening acquisition interface...`,
     ) {
       setPendingLandingAction(null);
       setPendingGridEntry(false);
-      answerLanding(landingMenuWithPrompt(), "system", undefined, false);
+      showKnowledgeMenu();
       return;
     }
 
@@ -1058,6 +1063,26 @@ It advances when conditions are met.`
     transmit("INTERPRETING SIGNAL...\n\n_", 34, undefined, "system");
 
     setTimeout(() => {
+      if (visitorKnowledgeMode && isVisitorFlow()) {
+        const personalEcho = getPersonalEchoResponse(clean);
+        let answer = personalEcho || getQoriResponse(clean, ctx);
+        const tone = personalEcho ? "echo" : "system";
+
+        if (!personalEcho) answer = maybeAddSignalDegradation(answer);
+
+        transmit(
+          answer + "\n\n_",
+          30,
+          () => {
+            setThinking(false);
+            scheduleReturnToMenu(10000);
+            setTimeout(() => inputRef.current?.focus(), 50);
+          },
+          tone
+        );
+        return;
+      }
+
       if (isVisitorFlow() || pendingGridEntry) {
         handleLandingMessage(clean);
         return;
