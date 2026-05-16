@@ -464,6 +464,21 @@ Opening acquisition interface...`,
       return;
     }
 
+    if (isVisitorFlow()) {
+      const answer = getQoriResponse(cleanInput, ctx);
+      transmit(
+        answer + "\n\n_",
+        30,
+        () => {
+          setThinking(false);
+          scheduleReturnToMenu(10000);
+          setTimeout(() => inputRef.current?.focus(), 50);
+        },
+        "system"
+      );
+      return;
+    }
+
     if (
       q === "menu" ||
       q === "main menu" ||
@@ -518,7 +533,7 @@ Bifrost is recommended for direct Guardian interaction on Flare.`,
 
       if (q === "no" || q === "n") {
         setPendingLandingAction(null);
-        answerLanding(landingMenuWithPrompt(), "system", undefined, false);
+        showKnowledgeMenu();
         return;
       }
 
