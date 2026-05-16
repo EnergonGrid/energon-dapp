@@ -425,6 +425,7 @@ _`,
 
   function handleVisitorGridChoice(q) {
     if (q === "1" || q.includes("energon basic")) {
+      setPendingGridEntry(true);
       answerLanding(
         `ENERGON BASICS
 
@@ -445,6 +446,7 @@ One Guardian.`
     }
 
     if (q === "2" || q.includes("system status") || q.includes("status")) {
+      setPendingGridEntry(true);
       answerLanding(
         `PUBLIC SYSTEM STATUS
 
@@ -1196,7 +1198,7 @@ It advances when conditions are met.`
                 : "rgba(47,212,255,0.08)",
             boxShadow: walletPromptGlow
               ? `${visuals.shadow}, 0 0 28px ${visuals.color}, 0 0 58px ${visuals.color}`
-              : visuals.shadow,
+              : isVisitorFlow() ? "0 0 12px rgba(30,200,255,0.75)" : visuals.shadow,
             transform: `scale(${pulse})`,
             transition: "all 2.2s ease-in-out",
             zIndex: 9999,
@@ -1352,12 +1354,12 @@ It advances when conditions are met.`
                 height: 2,
                 width: "100%",
                 background: `linear-gradient(90deg, transparent, ${
-                  displayTone === "echo" ? "#ffcf6b" : visuals.color
+                  displayTone === "echo" ? "#ffcf6b" : isVisitorFlow() ? "#1ec8ff" : visuals.color
                 }, transparent)`,
                 boxShadow:
                   displayTone === "echo"
                     ? "0 0 12px rgba(255,207,107,0.75)"
-                    : visuals.shadow,
+                    : isVisitorFlow() ? "0 0 12px rgba(30,200,255,0.75)" : visuals.shadow,
                 opacity: silent ? 0.45 : 1,
               }}
             />
