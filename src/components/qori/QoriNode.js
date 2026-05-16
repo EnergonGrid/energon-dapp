@@ -381,7 +381,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
         setTimeout(() => inputRef.current?.focus(), 50);
 
         visitorAppendRef.current = setTimeout(() => {
-          if (!landingMode) return;
+          
           if (shouldHoldReturnMenu()) {
             showVisitorGridPrompt();
             return;
@@ -998,13 +998,43 @@ It advances when conditions are met.`
           () => {
             setTimeout(() => {
               if (shouldHoldReturnMenu()) return;
-
-              transmit(
-                coherentMenuWithPrompt() + "\n\n_",
-                30,
-                undefined,
-                "system"
-              );
+            
+              if (nextCtx.guardianState === "COHERENT") {
+                transmit(
+                  coherentMenuWithPrompt() + "\n\n_",
+                  30,
+                  undefined,
+                  "system"
+                );
+                return;
+              }
+            
+              if (nextCtx.guardianState === "NO KEY") {
+                showVisitorGridPrompt();
+                return;
+              }
+            
+              if (nextCtx.guardianState === "FRACTURED") {
+                transmit(
+                  `FRACTURED STATE DETECTED.
+            
+            This wallet holds more than one EnergonCube.
+            
+            Guardian coherence requires:
+            
+            One wallet.
+            One cube.
+            One Guardian.
+            
+            Reduce cube balance to exactly one
+            to restore coherent access.
+            
+            _`,
+                  30,
+                  undefined,
+                  "system"
+                );
+              }
             }, 10000);
           },
           "system"
