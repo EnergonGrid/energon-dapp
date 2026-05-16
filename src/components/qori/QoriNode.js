@@ -22,7 +22,7 @@ const VISITOR_GRID_PROMPT = `Would you like to learn more about Energon?
 1. Energon Basics
 2. System Status`;
 
-const VISITOR_GRID_ENTRY_APPEND = `Would you like to enter the Energon Grid?
+const VISITOR_GRID_ENTRY_APPEND = `Or would you like to enter the Energon Grid?
 
 3. Yes
 4. No
