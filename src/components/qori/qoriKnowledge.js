@@ -31,6 +31,8 @@ function helpMenu() {
 10. Burn and halving
 11. Q.O.R.I identity
 12. Newcomer guidance
+13. Read Whitepaper
+14. Read EMP
 
 Ask directly.`;
 }
@@ -199,6 +201,33 @@ and network selection.`,
 where Energon state is observed.
 
 Correct network is required.`,
+    ],
+  },
+  {
+    keys: ["whitepaper", "white paper", "read whitepaper", "read white paper"],
+    responses: [
+      `The Energon Whitepaper explains the deterministic structure, Guardian logic, and protocol architecture.
+
+Use it to understand the rules before entering the Grid.`,
+      `Whitepaper path recognized.
+
+Read the core rules first.
+Then enter the system with clarity.
+
+One wallet.
+One cube.
+One Guardian.`,
+    ],
+  },
+  {
+    keys: ["emp", "read emp", "emp framework", "energon emp"],
+    responses: [
+      `EMP contains extended protocol mechanics and management-layer structure.
+
+It is for deeper study after the Whitepaper.`,
+      `EMP path recognized.
+
+The framework expands the system layer beyond the basic Guardian entry path.`,
     ],
   },
   {

@@ -17,17 +17,12 @@ function vaultCountdownDays() {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
-const VISITOR_GRID_PROMPT = `Would you like to learn more about Energon?
+const GRID_ENTRY_PROMPT = `Would you like to enter the Energon Grid?
 
-1. Energon Basics
-2. System Status`;
+1. Yes
+2. No
 
-const VISITOR_GRID_ENTRY_APPEND = `Or would you like to enter the Energon Grid?
-
-3. Yes
-4. No
-
-Type 1, 2, 3, or 4.`;
+Type 1 or 2.`;
 
 const LANDING_PROMPTS = [
   "Visitor signal received. Select your entry path.",
@@ -273,6 +268,21 @@ export default function QoriNode({ hideOrb = true } = {}) {
     return !!inputRef.current?.value?.trim();
   }
 
+  function showKnowledgeMenu() {
+    clearReturnMenuTimer();
+    clearVisitorAppendTimer();
+    setPendingLandingAction(null);
+    setPendingGridEntry(false);
+    setThinking(false);
+
+    transmit(
+      getQoriResponse("help", ctx) + "\n\n_",
+      30,
+      () => setTimeout(() => inputRef.current?.focus(), 50),
+      "system"
+    );
+  }
+
   function isVisitorFlow() {
     return (
       landingMode ||
@@ -292,10 +302,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
         return;
       }
 
-      setPendingLandingAction(null);
-      setPendingGridEntry(true);
-      setThinking(false);
-      showVisitorGridPrompt();
+      showKnowledgeMenu();
     }, delay);
   }
 
@@ -390,7 +397,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
     const visitorLandingText = `${randomLandingPrompt()}
 
-${VISITOR_GRID_PROMPT}`;
+${GRID_ENTRY_PROMPT}`;
 
     transmit(
       visitorLandingText + "\n\n_",
@@ -497,13 +504,10 @@ Opening acquisition interface...`,
       return true;
     }
 
-    if (q === "4" || q === "no" || q === "n") {
+    if (q === "2" || q === "4" || q === "no" || q === "n") {
       setPendingGridEntry(false);
       setInput("");
-      setThinking(false);
-      clearReturnMenuTimer();
-      clearVisitorAppendTimer();
-      showVisitorGridPrompt();
+      showKnowledgeMenu();
 
       return true;
     }
@@ -518,7 +522,7 @@ Opening acquisition interface...`,
       if (handleVisitorGridChoice(q)) return;
 
       answerLanding(
-        `${VISITOR_GRID_PROMPT}
+        `${GRID_ENTRY_PROMPT}
 
 ${VISITOR_GRID_ENTRY_APPEND}`,
         "system",
