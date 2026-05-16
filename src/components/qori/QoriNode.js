@@ -272,6 +272,14 @@ export default function QoriNode({ hideOrb = true } = {}) {
     return !!inputRef.current?.value?.trim();
   }
 
+  function isVisitorFlow() {
+    return (
+      landingMode ||
+      ctx.guardianState === "NO KEY" ||
+      ctx.guardianState === "VISITOR"
+    );
+  }
+
   function scheduleReturnToMenu(delay = 10000) {
     if (!landingMode) return;
 
@@ -284,9 +292,9 @@ export default function QoriNode({ hideOrb = true } = {}) {
       }
 
       setPendingLandingAction(null);
-      setPendingGridEntry(false);
+      setPendingGridEntry(true);
       setThinking(false);
-      transmit(landingMenuWithPrompt() + "\n\n_", 24, undefined, "system");
+      showVisitorGridPrompt();
     }, delay);
   }
 
@@ -301,6 +309,11 @@ export default function QoriNode({ hideOrb = true } = {}) {
         return;
       }
 
+      if (isVisitorFlow()) {
+        showVisitorGridPrompt();
+        return;
+      }
+
       transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
     }, delay);
   }
@@ -312,8 +325,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
       if (String(nextValue).trim()) return;
       if (inputRef.current?.value?.trim()) return;
 
-      if (landingMode) {
-        transmit(landingMenuWithPrompt() + "\n\n_", 24, undefined, "system");
+      if (isVisitorFlow()) {
+        showVisitorGridPrompt();
       } else {
         transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
       }
@@ -387,14 +400,18 @@ export default function QoriNode({ hideOrb = true } = {}) {
             return;
           }
 
-          setDisplayText(
+          transmit(
             `${VISITOR_GRID_PROMPT}
 
 ${VISITOR_GRID_ENTRY_APPEND}
 
-_`
+_`,
+            30,
+            () => {
+              setTimeout(() => inputRef.current?.focus(), 50);
+            },
+            "system"
           );
-          setTimeout(() => inputRef.current?.focus(), 50);
         }, 10000);
       },
       "system"
@@ -1112,7 +1129,7 @@ It advances when conditions are met.`
     transmit("INTERPRETING SIGNAL...\n\n_", 34, undefined, "system");
 
     setTimeout(() => {
-      if (landingMode) {
+      if (isVisitorFlow() || pendingGridEntry) {
         handleLandingMessage(clean);
         return;
       }
@@ -1221,7 +1238,7 @@ It advances when conditions are met.`
                   : ctx.guardianState === "COHERENT"
                   ? "1px solid rgba(0,255,198,0.55)"
                   : ctx.guardianState === "VISITOR"
-                  ? "1px solid rgba(255,207,107,0.50)"
+                  ? "1px solid rgba(45,170,255,0.55)"
                   : "1px solid rgba(45,170,255,0.55)",
               borderRadius: 24,
               boxShadow:
@@ -1230,7 +1247,7 @@ It advances when conditions are met.`
                   : ctx.guardianState === "COHERENT"
                   ? "0 0 35px rgba(0,255,198,0.22), inset 0 0 20px rgba(0,255,198,0.08)"
                   : ctx.guardianState === "VISITOR"
-                  ? "0 0 35px rgba(255,207,107,0.18), inset 0 0 20px rgba(255,207,107,0.06)"
+                  ? "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)"
                   : "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)",
               padding: 28,
               color: "#e8f6ff",
@@ -1250,12 +1267,12 @@ It advances when conditions are met.`
                     : ctx.guardianState === "COHERENT"
                     ? "#00ffc6"
                     : ctx.guardianState === "VISITOR"
-                    ? "#ffcf6b"
+                    ? "#1ec8ff"
                     : "#1ec8ff",
                 letterSpacing: 8,
                 textShadow:
                   ctx.guardianState === "VISITOR"
-                    ? "0 0 14px rgba(255,207,107,0.65)"
+                    ? "0 0 14px rgba(30,200,255,0.75)"
                     : "0 0 14px rgba(30,200,255,0.75)",
               }}
             >
@@ -1376,8 +1393,8 @@ It advances when conditions are met.`
                 placeholder={
                   thinking || isTyping
                     ? "Q.O.R.I transmitting..."
-                    : landingMode
-                    ? "Type 1-8 or ask Q.O.R.I..."
+                    : isVisitorFlow()
+                    ? "Type 1, 2, 3, or 4..."
                     : "Ask Q.O.R.I..."
                 }
                 style={{
