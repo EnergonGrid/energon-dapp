@@ -5,6 +5,7 @@ import { typeText, stopTyping, maybeAddSignalDegradation } from "./qoriEffects";
 import {
   getStateVisuals,
   getSystemObservation,
+  getVisitorObservation,
   readQoriLiveState,
 } from "./qoriState";
 
@@ -16,12 +17,17 @@ function vaultCountdownDays() {
   return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
 }
 
-const GRID_ENTRY_PROMPT = `Would you like to enter the Energon Grid?
+const VISITOR_GRID_PROMPT = `Would you like to learn more about Energon?
 
-1. Yes
-2. No
+1. Energon Basics
+2. System Status`;
 
-Type 1 or 2.`;
+const VISITOR_GRID_ENTRY_APPEND = `Would you like to enter the Energon Grid?
+
+3. Yes
+4. No
+
+Type 1, 2, 3, or 4.`;
 
 const LANDING_PROMPTS = [
   "Visitor signal received. Select your entry path.",
@@ -89,23 +95,6 @@ function coherentMenuWithPrompt() {
 Type a number or ask directly.`;
 }
 
-const LANDING_MENU = `Q.O.R.I ONLINE
-
-I observe the Energon Grid.
-
-How may I assist your entry into the system?
-
-1. Acquire EnergonCube
-2. Setup Wallet
-3. Read Whitepaper
-4. Read EMP
-5. What is Energon?
-6. What is a Guardian?
-7. What is Q.O.R.I
-8. Enter dApp
-
-Type a number or option name.`;
-
 const COHERENT_HELP_MENU = `Q.O.R.I can assist with:
 
 1. System Status
@@ -170,6 +159,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const inputRef = useRef(null);
   const messageBoxRef = useRef(null);
   const returnMenuRef = useRef(null);
+  const visitorAppendRef = useRef(null);
   const previousWalletConnectedRef = useRef(false);
 
   useEffect(() => {
@@ -208,6 +198,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
         burnState: "PUBLIC GUIDE",
         halvingState: "ACTIVE CYCLE",
         nextHalvingDate: "",
+        halvingCountdown: "",
         protocolEra: "GENESIS CYCLE",
       }));
       return;
@@ -241,6 +232,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       setThinking(false);
       setIsTyping(false);
       stopTyping(typingRef);
+      clearVisitorAppendTimer();
       transmit(landingMenuWithPrompt() + "\n\n_", 18, undefined, "system");
     };
 
@@ -269,6 +261,13 @@ export default function QoriNode({ hideOrb = true } = {}) {
     }
   }
 
+  function clearVisitorAppendTimer() {
+    if (visitorAppendRef.current) {
+      clearTimeout(visitorAppendRef.current);
+      visitorAppendRef.current = null;
+    }
+  }
+
   function shouldHoldReturnMenu() {
     return !!inputRef.current?.value?.trim();
   }
@@ -279,7 +278,10 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
-      if (shouldHoldReturnMenu()) return;
+      if (shouldHoldReturnMenu()) {
+        scheduleReturnToMenu(10000);
+        return;
+      }
 
       setPendingLandingAction(null);
       setPendingGridEntry(false);
@@ -294,7 +296,10 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
-      if (shouldHoldReturnMenu()) return;
+      if (shouldHoldReturnMenu()) {
+        scheduleReturnToCoherentMenu(10000);
+        return;
+      }
 
       transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
     }, delay);
@@ -329,6 +334,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
   function answerLanding(text, tone = "system", onDone, autoReturn = true) {
     clearReturnMenuTimer();
+    clearVisitorAppendTimer();
 
     transmit(
       text + "\n\n_",
@@ -363,58 +369,148 @@ export default function QoriNode({ hideOrb = true } = {}) {
     );
   }
 
+  function showVisitorGridPrompt() {
+    clearReturnMenuTimer();
+    clearVisitorAppendTimer();
+    setPendingGridEntry(true);
+
+    transmit(
+      VISITOR_GRID_PROMPT + "\n\n_",
+      30,
+      () => {
+        setTimeout(() => inputRef.current?.focus(), 50);
+
+        visitorAppendRef.current = setTimeout(() => {
+          if (!landingMode) return;
+          if (shouldHoldReturnMenu()) {
+            showVisitorGridPrompt();
+            return;
+          }
+
+          setDisplayText(
+            `${VISITOR_GRID_PROMPT}
+
+${VISITOR_GRID_ENTRY_APPEND}
+
+_`
+          );
+          setTimeout(() => inputRef.current?.focus(), 50);
+        }, 10000);
+      },
+      "system"
+    );
+  }
+
+  function handleVisitorGridChoice(q) {
+    if (q === "1" || q.includes("energon basic")) {
+      answerLanding(
+        `ENERGON BASICS
+
+Energon is a live deterministic protocol on Flare.
+
+It does not rely on admins,
+hidden automation,
+or off-chain control.
+
+The system advances only when
+its rules are met.
+
+One wallet.
+One cube.
+One Guardian.`
+      );
+      return true;
+    }
+
+    if (q === "2" || q.includes("system status") || q.includes("status")) {
+      answerLanding(
+        `PUBLIC SYSTEM STATUS
+
+Interface: Visitor
+Live wallet data: Locked
+Guardian state: Requires one EnergonCube
+Protocol access: Public guide only
+
+Visitors can learn,
+prepare a wallet,
+read the documents,
+and enter the dApp.
+
+Live protocol reads unlock
+inside the Guardian interface.`
+      );
+      return true;
+    }
+
+    if (q === "3" || q === "yes" || q === "y") {
+      setPendingGridEntry(false);
+      setInput("");
+      setThinking(true);
+      clearReturnMenuTimer();
+      clearVisitorAppendTimer();
+
+      answerLanding(
+        `Entry into the Energon Grid
+requires acquisition of an EnergonCube.
+
+The EnergonCube is the access key
+recognized by the protocol.
+
+No cube means NO KEY.
+One cube means COHERENT.
+More than one cube means FRACTURED.
+
+One wallet.
+One cube.
+One Guardian.
+
+Opening acquisition interface...`,
+        "system",
+        () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
+        false
+      );
+
+      return true;
+    }
+
+    if (q === "4" || q === "no" || q === "n") {
+      setPendingGridEntry(false);
+      setInput("");
+      setThinking(true);
+      clearReturnMenuTimer();
+      clearVisitorAppendTimer();
+
+      transmit(
+        landingMenuWithPrompt() + "\n\n_",
+        30,
+        () => {
+          setThinking(false);
+          setTimeout(() => inputRef.current?.focus(), 50);
+        },
+        "system"
+      );
+
+      return true;
+    }
+
+    return false;
+  }
+
   function handleLandingMessage(cleanInput) {
     const q = normalizeLandingInput(cleanInput);
 
     if (pendingGridEntry) {
-      if (q === "1" || q === "yes" || q === "y") {
-        setPendingGridEntry(false);
-        setInput("");
-        setThinking(true);
-        clearReturnMenuTimer();
-    
-        answerLanding(
-          `Entry into the Energon Grid
-    requires acquisition of an EnergonCube.
-    
-    The EnergonCube is the access key
-    recognized by the protocol.
-    
-    No cube means NO KEY.
-    One cube means COHERENT.
-    More than one cube means FRACTURED.
-    
-    One wallet.
-    One cube.
-    One Guardian.
-    
-    Opening acquisition interface...`,
-          "system",
-          () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
-          false
-        );
-    
-        return;
-      }
-    
-      if (q === "2" || q === "no" || q === "n") {
-        setPendingGridEntry(false);
-        setInput("");
-        setThinking(true);
-        clearReturnMenuTimer();
-    
-        transmit(
-          landingMenuWithPrompt() + "\n\n_",
-          30,
-          () => {
-            setThinking(false);
-            setTimeout(() => inputRef.current?.focus(), 50);
-          },
-          "system"
-        );
-    
-        return;
-      }
+      if (handleVisitorGridChoice(q)) return;
+
+      answerLanding(
+        `${VISITOR_GRID_PROMPT}
+
+${VISITOR_GRID_ENTRY_APPEND}`,
+        "system",
+        undefined,
+        false
+      );
+      return;
     }
 
     if (
@@ -854,7 +950,8 @@ It advances when conditions are met.`
       return true;
     }
 
-    return false;
+    answerLive(COHERENT_HELP_MENU);
+    return true;
   }
 
   async function refreshLiveState({ speak = false } = {}) {
@@ -876,12 +973,11 @@ It advances when conditions are met.`
 
       if (speak) {
         transmit(
-          getSystemObservation(visitorCtx) + "\n\n_",
+          getVisitorObservation() + "\n\n_",
           32,
           () => {
-            setTimeout(() => {
-              setPendingGridEntry(true);
-              transmit(GRID_ENTRY_PROMPT + "\n\n_", 30, undefined, "system");
+            visitorAppendRef.current = setTimeout(() => {
+              showVisitorGridPrompt();
             }, 10000);
           },
           "system"
@@ -900,27 +996,16 @@ It advances when conditions are met.`
           getSystemObservation(nextCtx) + "\n\n_",
           32,
           () => {
-            if (nextCtx.guardianState === "COHERENT") {
-              setTimeout(() => {
-                if (shouldHoldReturnMenu()) return;
+            setTimeout(() => {
+              if (shouldHoldReturnMenu()) return;
 
-                transmit(
-                  coherentMenuWithPrompt() + "\n\n_",
-                  30,
-                  undefined,
-                  "system"
-                );
-              }, 10000);
-            }
-
-            if (nextCtx.guardianState === "NO KEY") {
-              setTimeout(() => {
-                if (shouldHoldReturnMenu()) return;
-
-                setPendingGridEntry(true);
-                transmit(GRID_ENTRY_PROMPT + "\n\n_", 30, undefined, "system");
-              }, 10000);
-            }
+              transmit(
+                coherentMenuWithPrompt() + "\n\n_",
+                30,
+                undefined,
+                "system"
+              );
+            }, 10000);
           },
           "system"
         );
@@ -956,6 +1041,7 @@ It advances when conditions are met.`
       if (liveRef.current) clearInterval(liveRef.current);
       if (silentRef.current) clearTimeout(silentRef.current);
       clearReturnMenuTimer();
+      clearVisitorAppendTimer();
     };
   }, [landingMode]);
 
@@ -987,60 +1073,8 @@ It advances when conditions are met.`
 
     if (!clean || thinking || isTyping) return;
 
-    const q = normalizeLandingInput(clean);
-
-    if (pendingGridEntry) {
-      if (q === "1" || q === "yes" || q === "y") {
-        setPendingGridEntry(false);
-        setInput("");
-        setThinking(true);
-        clearReturnMenuTimer();
-    
-        answerLanding(
-          `Entry into the Energon Grid
-    requires acquisition of an EnergonCube.
-    
-    The EnergonCube is the access key
-    recognized by the protocol.
-    
-    No cube means NO KEY.
-    One cube means COHERENT.
-    More than one cube means FRACTURED.
-    
-    One wallet.
-    One cube.
-    One Guardian.
-    
-    Opening acquisition interface...`,
-          "system",
-          () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
-          false
-        );
-    
-        return;
-      }
-    
-      if (q === "2" || q === "no" || q === "n") {
-        setPendingGridEntry(false);
-        setInput("");
-        setThinking(true);
-        clearReturnMenuTimer();
-    
-        transmit(
-          landingMenuWithPrompt() + "\n\n_",
-          30,
-          () => {
-            setThinking(false);
-            setTimeout(() => inputRef.current?.focus(), 50);
-          },
-          "system"
-        );
-    
-        return;
-      }
-    }
-
     clearReturnMenuTimer();
+    clearVisitorAppendTimer();
     setInput("");
     setThinking(true);
     resetSilentTimer();
@@ -1053,14 +1087,8 @@ It advances when conditions are met.`
         return;
       }
 
-      if (
-        ctx.guardianState === "COHERENT" ||
-        ctx.guardianState === "FRACTURED" ||
-        ctx.guardianState === "NO KEY"
-      ) {
-        const handled = handleCoherentMessage(clean);
-        if (handled) return;
-      }
+      const handled = handleCoherentMessage(clean);
+      if (handled) return;
 
       const personalEcho = getPersonalEchoResponse(clean);
       let answer = personalEcho || getQoriResponse(clean, ctx);
@@ -1073,15 +1101,7 @@ It advances when conditions are met.`
         30,
         () => {
           setThinking(false);
-
-          if (
-            ctx.guardianState === "COHERENT" ||
-            ctx.guardianState === "FRACTURED" ||
-            ctx.guardianState === "NO KEY"
-          ) {
-            scheduleReturnToCoherentMenu(10000);
-          }
-
+          scheduleReturnToCoherentMenu(10000);
           setTimeout(() => inputRef.current?.focus(), 50);
         },
         tone

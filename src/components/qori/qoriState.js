@@ -1,4 +1,22 @@
 import { ethers } from "ethers";
+import {
+  ABI,
+  CONTRACT_ADDRESS,
+  MAINNET_CHAIN_ID,
+  RPCS,
+} from "../../lib/contract";
+
+const CONTROLLER_ADDRESS_LOCKED =
+  "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
+
+const CONTROLLER_ABI = [
+  "function energonHeight() view returns (uint256)",
+  "function secondsUntilNextEnergonBlock() view returns (uint256)",
+  "function burnPoolRemaining() view returns (uint256)",
+  "function launchTime() view returns (uint256)",
+  "function lastHalvingTime() view returns (uint256)",
+  "function halvingInterval() view returns (uint256)",
+];
 
 const GENESIS_DATE = new Date("2025-12-20T00:00:00Z");
 
@@ -81,69 +99,73 @@ function getProtocolEra() {
 
   const eraIndex = Math.floor(yearsElapsed / 4);
 
-  return PROTOCOL_ERAS[
-    Math.min(eraIndex, PROTOCOL_ERAS.length - 1)
-  ];
+  return PROTOCOL_ERAS[Math.min(eraIndex, PROTOCOL_ERAS.length - 1)];
 }
 
-const EON_ADDRESS = "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
-const CUBE_ADDRESS = "0x30e1076bDf2B123B54486C2721125388af2d2061";
+function formatDateFromUnix(sec) {
+  try {
+    const n = Number(sec || 0);
+    if (!Number.isFinite(n) || n <= 0) return "";
+    return new Date(n * 1000).toLocaleDateString();
+  } catch {
+    return "";
+  }
+}
 
-const EON_ABI = [
-  "function balanceOf(address owner) view returns (uint256)",
-];
+function formatCountdown(seconds) {
+  const s = Math.max(0, Number(seconds || 0));
+  const days = Math.floor(s / 86400);
+  const hours = Math.floor((s % 86400) / 3600);
+  const minutes = Math.floor((s % 3600) / 60);
 
-const CUBE_ABI = [
-  "function balanceOf(address owner) view returns (uint256)",
-];
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function getRpcUrl() {
+  const v = RPCS?.[MAINNET_CHAIN_ID];
+
+  if (Array.isArray(v)) return v.filter(Boolean)[0] || "";
+  if (typeof v === "string") return v;
+
+  return "";
+}
 
 export function getStateVisuals(state = "UNKNOWN", silent = false) {
   if (state === "COHERENT") {
     return {
       color: "#00ffc6",
-      shadow: silent
-        ? "0 0 8px rgba(0,255,198,0.22)"
-        : "0 0 18px rgba(0,255,198,0.7)",
       border: "1px solid rgba(0,255,198,0.45)",
+      shadow:
+        "0 0 12px rgba(0,255,198,0.85), 0 0 28px rgba(0,255,198,0.35)",
     };
   }
 
   if (state === "FRACTURED") {
     return {
       color: "#ff7070",
-      shadow: silent
-        ? "0 0 8px rgba(255,80,80,0.22)"
-        : "0 0 18px rgba(255,80,80,0.7)",
       border: "1px solid rgba(255,80,80,0.45)",
-    };
-  }
-
-  if (state === "NO KEY") {
-    return {
-      color: "#7fd6ff",
-      shadow: silent
-        ? "0 0 8px rgba(80,180,255,0.18)"
-        : "0 0 18px rgba(80,180,255,0.55)",
-      border: "1px solid rgba(80,180,255,0.34)",
+      shadow:
+        "0 0 12px rgba(255,80,80,0.85), 0 0 28px rgba(255,80,80,0.35)",
     };
   }
 
   if (state === "VISITOR") {
     return {
       color: "#ffcf6b",
-      shadow: silent
-        ? "0 0 8px rgba(255,207,107,0.16)"
-        : "0 0 18px rgba(255,207,107,0.45)",
       border: "1px solid rgba(255,207,107,0.34)",
+      shadow:
+        "0 0 12px rgba(255,207,107,0.55), 0 0 28px rgba(255,207,107,0.18)",
     };
   }
 
   return {
     color: "#24d6ff",
+    border: "1px solid rgba(47,212,255,0.35)",
     shadow: silent
-      ? "0 0 8px rgba(36,214,255,0.16)"
-      : "0 0 18px rgba(36,214,255,0.45)",
-    border: "1px solid rgba(36,214,255,0.34)",
+      ? "0 0 4px rgba(47,212,255,0.18)"
+      : "0 0 8px rgba(47,212,255,0.28)",
   };
 }
 
@@ -164,85 +186,132 @@ Entry requires a key.`;
 }
 
 export function getSystemObservation(ctx = {}) {
-  return `Q.O.R.I observes live protocol conditions.
+  return `SYSTEM OBSERVATION:
 
-Guardian State: ${ctx.guardianState || "UNKNOWN"}
-Protocol Era: ${ctx.protocolEra || "UNKNOWN"}
+State: ${ctx.guardianState || "UNKNOWN"}
+Cube Balance: ${ctx.cubeBalance || "-"}
+Energon Height: ${ctx.energonHeight || "UNKNOWN"}
+Tick State: ${ctx.tickState || "UNKNOWN"}
+Burn State: ${ctx.burnState || "UNKNOWN"}
+Halving State: ${ctx.halvingState || "UNKNOWN"}
+Era: ${ctx.protocolEra || getProtocolEra()}
 
-The system advances only when conditions are met.
-
-One wallet.
-One cube.
-One Guardian.`;
+Q.O.R.I observes.
+Q.O.R.I does not control.`;
 }
 
 export async function readQoriLiveState() {
   const baseCtx = {
     walletConnected: false,
     guardianState: "NO KEY",
-    cubeBalance: "0",
-    energonHeight: "LIVE",
-    tickState: "ACTIVE",
-    burnState: "ACTIVE",
-    halvingState: "GENESIS",
-    nextHalvingDate: "2029-12-20",
-    halvingCountdown: "4 YEARS",
+    cubeBalance: "-",
+    energonHeight: "UNKNOWN",
+    tickState: "UNKNOWN",
+    burnState: "UNKNOWN",
+    halvingState: "ACTIVE CYCLE",
+    nextHalvingDate: "",
+    halvingCountdown: "",
     protocolEra: getProtocolEra(),
   };
 
   try {
-    if (!window.ethereum) return baseCtx;
+    const rpcUrl = getRpcUrl();
+    if (!rpcUrl) return baseCtx;
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
+    const roProvider = new ethers.JsonRpcProvider(rpcUrl);
+    const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, roProvider);
 
-    const accounts = await provider.send("eth_accounts", []);
+    let ctrl = CONTROLLER_ADDRESS_LOCKED;
 
-    if (!accounts || !accounts.length) {
+    try {
+      const onChainCtrl = await cube.controller();
+      if (onChainCtrl && onChainCtrl !== ethers.ZeroAddress) {
+        ctrl = onChainCtrl;
+      }
+    } catch {}
+
+    try {
+      const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, roProvider);
+
+      try {
+        const h = await controller.energonHeight();
+        baseCtx.energonHeight = h.toString();
+      } catch {}
+
+      try {
+        const sec = await controller.secondsUntilNextEnergonBlock();
+        const n = Number(sec.toString());
+        baseCtx.tickState = n === 0 ? "TICK ALLOWED" : `${n}s`;
+      } catch {}
+
+      try {
+        const remaining = await controller.burnPoolRemaining();
+        const formattedRemaining = ethers.formatUnits(remaining, 18);
+
+        const cleanRemaining = Number(formattedRemaining).toLocaleString(
+          undefined,
+          { maximumFractionDigits: 2 }
+        );
+
+        baseCtx.burnState = `${cleanRemaining} EON remaining`;
+      } catch {}
+
+      try {
+        const lastHalving = await controller.lastHalvingTime();
+        const interval = await controller.halvingInterval();
+
+        const next =
+          Number(lastHalving.toString()) + Number(interval.toString());
+
+        if (next > 0) {
+          baseCtx.nextHalvingDate = formatDateFromUnix(next);
+          baseCtx.halvingCountdown = formatCountdown(
+            next - Math.floor(Date.now() / 1000)
+          );
+        }
+      } catch {}
+    } catch {}
+
+    if (typeof window === "undefined" || !window.ethereum) {
       return baseCtx;
     }
 
-    const signer = await provider.getSigner();
-    const address = await signer.getAddress();
+    let accounts = [];
 
-    const cube = new ethers.Contract(
-      CUBE_ADDRESS,
-      CUBE_ABI,
-      provider
-    );
+    try {
+      accounts = await window.ethereum.request({
+        method: "eth_accounts",
+      });
+    } catch {}
 
-    const eon = new ethers.Contract(
-      EON_ADDRESS,
-      EON_ABI,
-      provider
-    );
+    const addr = accounts?.[0] || "";
 
-    const cubeBalanceRaw = await cube.balanceOf(address);
-    const eonBalanceRaw = await eon.balanceOf(address);
-
-    const cubeBalance = Number(cubeBalanceRaw);
-    const eonBalance = ethers.formatUnits(eonBalanceRaw, 18);
-
-    let guardianState = "NO KEY";
-
-    if (cubeBalance === 1) {
-      guardianState = "COHERENT";
-    } else if (cubeBalance > 1) {
-      guardianState = "FRACTURED";
+    if (!addr) {
+      return baseCtx;
     }
 
-    return {
-      walletConnected: true,
-      guardianState,
-      cubeBalance: String(cubeBalance),
-      eonBalance,
-      energonHeight: "LIVE",
-      tickState: "ACTIVE",
-      burnState: "ACTIVE",
-      halvingState: "GENESIS",
-      nextHalvingDate: "2029-12-20",
-      halvingCountdown: "4 YEARS",
-      protocolEra: getProtocolEra(),
-    };
+    baseCtx.walletConnected = true;
+
+    try {
+      const bal = await cube.balanceOf(addr);
+      const n = Number(bal.toString());
+
+      baseCtx.cubeBalance = String(n);
+
+      if (n === 1) {
+        baseCtx.guardianState = "COHERENT";
+      } else if (n > 1) {
+        baseCtx.guardianState = "FRACTURED";
+      } else {
+        baseCtx.guardianState = "NO KEY";
+      }
+    } catch {
+      baseCtx.guardianState = "UNKNOWN";
+    }
+
+    baseCtx.protocolEra = getProtocolEra();
+
+    return baseCtx;
   } catch {
     return {
       ...baseCtx,
