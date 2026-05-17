@@ -349,6 +349,42 @@ _`,
       return;
     }
 
+    if (
+      q === "13" ||
+      q.includes("read whitepaper") ||
+      q.includes("whitepaper") ||
+      q.includes("white paper")
+    ) {
+      transmit(
+        "Opening Energon Whitepaper...\n\n_",
+        30,
+        () =>
+          openLandingUrl(
+            "https://energon-site.vercel.app/docs/energon-whitepaper.pdf"
+          ),
+        "system"
+      );
+      return;
+    }
+
+    if (
+      q === "14" ||
+      q === "emp" ||
+      q.includes("read emp") ||
+      q.includes("energon emp")
+    ) {
+      transmit(
+        "Opening Energon EMP...\n\n_",
+        30,
+        () =>
+          openLandingUrl(
+            "https://energon-site.vercel.app/docs/energon-emp.pdf"
+          ),
+        "system"
+      );
+      return;
+    }
+
     const query = knowledgeQueryFromInput(q);
     const personalEcho = getPersonalEchoResponse(cleanInput);
     let answer = personalEcho || getQoriResponse(query, ctx);
@@ -1040,7 +1076,6 @@ _`,
                 disabled={thinking || isTyping}
                 onFocus={() => {
                   resetSilentTimer();
-                  clearReturnMenuTimer();
                 }}
                 onChange={(e) => {
                   const nextValue = e.target.value;
