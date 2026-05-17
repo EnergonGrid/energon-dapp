@@ -247,8 +247,15 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
-      if (String(nextValue).trim()) return;
-      if (inputRef.current?.value?.trim()) return;
+      if (String(nextValue).trim()) {
+        resetReturnMenuAfterTyping("");
+        return;
+      }
+
+      if (inputRef.current?.value?.trim()) {
+        resetReturnMenuAfterTyping("");
+        return;
+      }
 
       if (isVisitorFlow()) {
         showKnowledgeMenu();
@@ -346,6 +353,24 @@ _`,
       q === "return"
     ) {
       showVisitorGridPrompt();
+      return;
+    }
+
+    if (
+      q === "4" ||
+      q.includes("wallet setup") ||
+      q === "wallet" ||
+      q.includes("setup wallet")
+    ) {
+      transmit(
+        "Opening Wallet Setup...\n\n_",
+        30,
+        () =>
+          openLandingUrl(
+            "https://energon-site.vercel.app/wallet-setup.html"
+          ),
+        "system"
+      );
       return;
     }
 

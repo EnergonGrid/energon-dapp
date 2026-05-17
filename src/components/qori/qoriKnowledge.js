@@ -16,8 +16,29 @@ function ctxValue(key) {
   return activeCtx?.[key] || "UNKNOWN";
 }
 
+const VISITOR_RETURN_PROMPTS = [
+  "Visitor path open. Select a signal to continue.",
+  "Q.O.R.I remains at the public gate. Choose your next question.",
+  "Understanding comes before entry. Select a topic.",
+  "The Grid waits. Learn first, then enter with clarity.",
+  "Public interface stable. Choose your next path.",
+  "Signal held. Select what you want to understand.",
+  "The gate remains open. Ask, read, or prepare.",
+  "Before Guardian state, there is observation. Choose a topic.",
+  "Q.O.R.I is listening from the visitor layer.",
+  "Knowledge path active. Select a number or ask directly.",
+];
+
+function randomVisitorPrompt() {
+  return VISITOR_RETURN_PROMPTS[
+    Math.floor(Math.random() * VISITOR_RETURN_PROMPTS.length)
+  ];
+}
+
 function helpMenu() {
-  return `I can answer questions about:
+  return `${randomVisitorPrompt()}
+
+I can answer questions about:
 
 1. Energon basics
 2. Guardian rules
