@@ -24,19 +24,6 @@ const GRID_ENTRY_PROMPT = `Would you like to enter the Energon Grid?
 
 Type 1 or 2.`;
 
-const LANDING_PROMPTS = [
-  "Visitor signal received. Select your entry path.",
-  "Q.O.R.I observes from the public gate. Choose a path.",
-  "The Grid is visible from here. Where would you like to begin?",
-  "Before Guardian state, there is understanding. Select an option.",
-  "Public interface active. Choose your next step into Energon.",
-  "The system is live. Entry paths are available.",
-  "One wallet. One cube. Begin with the path that fits you.",
-  "Q.O.R.I is online. Select your route into the protocol.",
-  "The Energon Grid awaits observation. Choose an action.",
-  "Access begins with understanding. Select a public path.",
-];
-
 const COHERENT_RETURN_PROMPTS = [
   "The Grid remains coherent. Select a system path.",
   "Guardian state verified. Additional observations available.",
@@ -50,29 +37,10 @@ const COHERENT_RETURN_PROMPTS = [
   "Energon remains active. Choose your next observation.",
 ];
 
-function randomLandingPrompt() {
-  return LANDING_PROMPTS[Math.floor(Math.random() * LANDING_PROMPTS.length)];
-}
-
 function randomCoherentPrompt() {
   return COHERENT_RETURN_PROMPTS[
     Math.floor(Math.random() * COHERENT_RETURN_PROMPTS.length)
   ];
-}
-
-function landingMenuWithPrompt() {
-  return `${randomLandingPrompt()}
-
-1. Acquire EnergonCube
-2. Setup Wallet
-3. Read Whitepaper
-4. Read EMP
-5. What is Energon?
-6. What is a Guardian?
-7. What is Q.O.R.I
-8. Enter dApp
-
-Type a number or option name.`;
 }
 
 function coherentMenuWithPrompt() {
@@ -120,6 +88,27 @@ function openLandingUrl(url) {
   window.location.href = url;
 }
 
+function knowledgeQueryFromInput(q) {
+  const map = {
+    "1": "energon basics",
+    "2": "guardian rules",
+    "3": "energoncube logic",
+    "4": "wallet setup",
+    "5": "flare network",
+    "6": "dapp navigation",
+    "7": "observer",
+    "8": "dashboard",
+    "9": "evault",
+    "10": "burn and halving",
+    "11": "qori identity",
+    "12": "newcomer guidance",
+    "13": "read whitepaper",
+    "14": "read emp",
+  };
+
+  return map[q] || q;
+}
+
 export default function QoriNode({ hideOrb = true } = {}) {
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(1);
@@ -131,7 +120,6 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const [silent, setSilent] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [landingMode, setLandingMode] = useState(false);
-  const [pendingLandingAction, setPendingLandingAction] = useState(null);
   const [pendingGridEntry, setPendingGridEntry] = useState(false);
   const [walletPromptGlow, setWalletPromptGlow] = useState(false);
   const [visitorKnowledgeMode, setVisitorKnowledgeMode] = useState(false);
@@ -155,88 +143,18 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const inputRef = useRef(null);
   const messageBoxRef = useRef(null);
   const returnMenuRef = useRef(null);
-  const visitorAppendRef = useRef(null);
   const previousWalletConnectedRef = useRef(false);
 
-  useEffect(() => {
-    if (landingMode) return;
-
-    const wasConnected = previousWalletConnectedRef.current;
-    const isConnected = !!ctx.walletConnected;
-
-    if (!wasConnected && isConnected) {
-      setWalletPromptGlow(true);
-    }
-
-    if (!isConnected) {
-      setWalletPromptGlow(false);
-    }
-
-    previousWalletConnectedRef.current = isConnected;
-  }, [ctx.walletConnected, landingMode]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const params = new URLSearchParams(window.location.search);
-
-    if (params.get("open") === "1") setOpen(true);
-
-    if (params.get("mode") === "landing") {
-      setLandingMode(true);
-      setCtx((prev) => ({
-        ...prev,
-        walletConnected: false,
-        guardianState: "VISITOR",
-        cubeBalance: "-",
-        energonHeight: "PUBLIC",
-        tickState: "PUBLIC GUIDE",
-        burnState: "PUBLIC GUIDE",
-        halvingState: "ACTIVE CYCLE",
-        nextHalvingDate: "",
-        halvingCountdown: "",
-        protocolEra: "GENESIS CYCLE",
-      }));
-      return;
-    }
-
-    const refreshFromWallet = () => refreshLiveState({ speak: false });
-
-    if (window.ethereum) {
-      window.ethereum.on?.("accountsChanged", refreshFromWallet);
-      window.ethereum.on?.("chainChanged", refreshFromWallet);
-    }
-
-    window.addEventListener("focus", refreshFromWallet);
-    refreshFromWallet();
-
-    return () => {
-      if (window.ethereum) {
-        window.ethereum.removeListener?.("accountsChanged", refreshFromWallet);
-        window.ethereum.removeListener?.("chainChanged", refreshFromWallet);
-      }
-      window.removeEventListener("focus", refreshFromWallet);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!landingMode) return;
-
-    const resetOnBack = () => {
-      setPendingLandingAction(null);
-      setPendingGridEntry(false);
-      setThinking(false);
-      setIsTyping(false);
-      stopTyping(typingRef);
-      clearVisitorAppendTimer();
-      showVisitorGridPrompt();
-    };
-
-    window.addEventListener("pageshow", resetOnBack);
-    return () => window.removeEventListener("pageshow", resetOnBack);
-  }, [landingMode]);
+  function isVisitorFlow() {
+    return (
+      landingMode ||
+      ctx.guardianState === "NO KEY" ||
+      ctx.guardianState === "VISITOR"
+    );
+  }
 
   const visuals = getStateVisuals(ctx.guardianState, silent);
+
   const activeTextColor =
     displayTone === "echo" ? "#ffcf6b" : isVisitorFlow() ? "#1ec8ff" : visuals.color;
 
@@ -258,21 +176,24 @@ export default function QoriNode({ hideOrb = true } = {}) {
     }
   }
 
-  function clearVisitorAppendTimer() {
-    if (visitorAppendRef.current) {
-      clearTimeout(visitorAppendRef.current);
-      visitorAppendRef.current = null;
-    }
-  }
-
   function shouldHoldReturnMenu() {
     return !!inputRef.current?.value?.trim();
   }
 
+  function transmit(text, speed = 32, onDone, tone = "system") {
+    stopTyping(typingRef);
+    resetSilentTimer();
+    setDisplayTone(tone);
+    setIsTyping(true);
+
+    typingRef.current = typeText(text, setDisplayText, speed, () => {
+      setIsTyping(false);
+      if (typeof onDone === "function") onDone();
+    });
+  }
+
   function showKnowledgeMenu() {
     clearReturnMenuTimer();
-    clearVisitorAppendTimer();
-    setPendingLandingAction(null);
     setPendingGridEntry(false);
     setVisitorKnowledgeMode(true);
     setThinking(false);
@@ -280,16 +201,10 @@ export default function QoriNode({ hideOrb = true } = {}) {
     transmit(
       getQoriResponse("help", ctx) + "\n\n_",
       30,
-      () => setTimeout(() => inputRef.current?.focus(), 50),
+      () => {
+        setTimeout(() => inputRef.current?.focus(), 50);
+      },
       "system"
-    );
-  }
-
-  function isVisitorFlow() {
-    return (
-      landingMode ||
-      ctx.guardianState === "NO KEY" ||
-      ctx.guardianState === "VISITOR"
     );
   }
 
@@ -320,7 +235,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       }
 
       if (isVisitorFlow()) {
-        showVisitorGridPrompt();
+        showKnowledgeMenu();
         return;
       }
 
@@ -343,40 +258,6 @@ export default function QoriNode({ hideOrb = true } = {}) {
     }, 10000);
   }
 
-  function transmit(text, speed = 32, onDone, tone = "system") {
-    stopTyping(typingRef);
-    resetSilentTimer();
-    setDisplayTone(tone);
-    setIsTyping(true);
-
-    typingRef.current = typeText(text, setDisplayText, speed, () => {
-      setIsTyping(false);
-      if (typeof onDone === "function") onDone();
-    });
-  }
-
-  function answerLanding(text, tone = "system", onDone, autoReturn = true) {
-    clearReturnMenuTimer();
-    clearVisitorAppendTimer();
-
-    transmit(
-      text + "\n\n_",
-      30,
-      () => {
-        setThinking(false);
-
-        if (typeof onDone === "function") {
-          onDone();
-          return;
-        }
-
-        if (autoReturn) scheduleReturnToMenu(10000);
-        setTimeout(() => inputRef.current?.focus(), 50);
-      },
-      tone
-    );
-  }
-
   function answerLive(text, tone = "system") {
     clearReturnMenuTimer();
 
@@ -393,35 +274,32 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }
 
   function showVisitorGridPrompt() {
-  clearReturnMenuTimer();
-  clearVisitorAppendTimer();
-  setPendingLandingAction(null);
-  setVisitorKnowledgeMode(false);
-  setPendingGridEntry(true);
+    clearReturnMenuTimer();
+    setPendingGridEntry(true);
+    setVisitorKnowledgeMode(false);
+    setThinking(false);
 
-  transmit(
-    GRID_ENTRY_PROMPT + "\n\n_",
-    30,
-    () => {
-      setTimeout(() => {
-        inputRef.current?.focus();
+    transmit(
+      GRID_ENTRY_PROMPT + "\n\n_",
+      30,
+      () => {
+        setTimeout(() => inputRef.current?.focus(), 50);
         scheduleReturnToMenu(10000);
-      }, 50);
-    },
-    "system"
-  );
-}
+      },
+      "system"
+    );
+  }
 
   function handleVisitorGridChoice(q) {
-  if (q === "1" || q === "yes" || q === "y") {
-    setPendingGridEntry(false);
-    setInput("");
-    setThinking(true);
-    clearReturnMenuTimer();
-    clearVisitorAppendTimer();
+    if (q === "1" || q === "yes" || q === "y") {
+      setPendingGridEntry(false);
+      setVisitorKnowledgeMode(false);
+      setInput("");
+      setThinking(true);
+      clearReturnMenuTimer();
 
-    answerLanding(
-      `Entry into the Energon Grid
+      transmit(
+        `Entry into the Energon Grid
 requires acquisition of an EnergonCube.
 
 The EnergonCube is the access key
@@ -435,39 +313,69 @@ One wallet.
 One cube.
 One Guardian.
 
-Opening acquisition interface...`,
-      "system",
-      () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
-      false
+Opening acquisition interface...
+
+_`,
+        30,
+        () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
+        "system"
+      );
+
+      return true;
+    }
+
+    if (q === "2" || q === "no" || q === "n") {
+      setPendingGridEntry(false);
+      setVisitorKnowledgeMode(true);
+      setInput("");
+      showKnowledgeMenu();
+      return true;
+    }
+
+    return false;
+  }
+
+  function handleVisitorKnowledge(cleanInput) {
+    const q = normalizeLandingInput(cleanInput);
+
+    if (
+      q === "grid" ||
+      q === "enter grid" ||
+      q === "enter the grid" ||
+      q === "back" ||
+      q === "return"
+    ) {
+      showVisitorGridPrompt();
+      return;
+    }
+
+    const query = knowledgeQueryFromInput(q);
+    const personalEcho = getPersonalEchoResponse(cleanInput);
+    let answer = personalEcho || getQoriResponse(query, ctx);
+    const tone = personalEcho ? "echo" : "system";
+
+    if (!personalEcho) answer = maybeAddSignalDegradation(answer);
+
+    transmit(
+      answer + "\n\n_",
+      30,
+      () => {
+        setThinking(false);
+        scheduleReturnToMenu(10000);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      },
+      tone
     );
-
-    return true;
   }
-
-  if (q === "2" || q === "no" || q === "n") {
-    setPendingGridEntry(false);
-    setInput("");
-    showKnowledgeMenu();
-    return true;
-  }
-
-  return false;
-}
 
   function handleLandingMessage(cleanInput) {
     const q = normalizeLandingInput(cleanInput);
 
-    if (pendingGridEntry) {
+    if (pendingGridEntry && !visitorKnowledgeMode) {
       if (handleVisitorGridChoice(q)) return;
 
-      answerLanding(GRID_ENTRY_PROMPT, "system", undefined, false);
-      return;
-    }
-
-    if (isVisitorFlow()) {
-      const answer = getQoriResponse(cleanInput, ctx);
       transmit(
-        answer + "\n\n_",
+        GRID_ENTRY_PROMPT + "\n\n_",
         30,
         () => {
           setThinking(false);
@@ -479,283 +387,7 @@ Opening acquisition interface...`,
       return;
     }
 
-    if (
-      q === "menu" ||
-      q === "main menu" ||
-      q === "return" ||
-      q === "back" ||
-      q === "visitor interface"
-    ) {
-      setPendingLandingAction(null);
-      setPendingGridEntry(false);
-      showKnowledgeMenu();
-      return;
-    }
-
-    if (pendingLandingAction) {
-      if (q === "yes" || q === "y") {
-        const action = pendingLandingAction;
-        setPendingLandingAction(null);
-
-        if (action === "acquire") {
-          answerLanding(
-            `Opening EnergonCube acquisition path...
-
-Prepare your wallet carefully.
-
-The system recognizes coherent state through exact ownership.
-
-One wallet.
-One cube.
-One Guardian.`,
-            "system",
-            () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
-            false
-          );
-          return;
-        }
-
-        if (action === "wallet") {
-          answerLanding(
-            `Opening wallet setup sequence...
-
-Bifrost is recommended for direct Guardian interaction on Flare.`,
-            "system",
-            () =>
-              openLandingUrl(
-                "https://energon-site.vercel.app/wallet-setup.html"
-              ),
-            false
-          );
-          return;
-        }
-      }
-
-      if (q === "no" || q === "n") {
-        setPendingLandingAction(null);
-        showKnowledgeMenu();
-        return;
-      }
-
-      answerLanding("Please answer YES or NO.\n\nWould you like to continue?");
-      return;
-    }
-
-    if (
-      q === "1" ||
-      q.includes("acquire") ||
-      q.includes("energon cube") ||
-      q.includes("energoncube") ||
-      q.includes("cube")
-    ) {
-      setPendingLandingAction("acquire");
-      answerLanding(
-        `The EnergonCube is the access key to the Energon Grid.
-
-A coherent Guardian holds exactly one cube.
-
-No cube means no key.
-One cube means coherent.
-More than one cube means fractured.
-
-Would you like to acquire an EnergonCube now?
-
-Type YES or NO.`,
-        "system",
-        undefined,
-        false
-      );
-      return;
-    }
-
-    if (q === "2" || q.includes("setup wallet") || q.includes("wallet")) {
-      setPendingLandingAction("wallet");
-      answerLanding(
-        `Wallet setup prepares your point of entry.
-
-A compatible wallet connects you to Flare Mainnet and allows you to interact with the Energon system.
-
-Bifrost is recommended for native Flare interaction and mobile Guardian access.
-
-Would you like to continue to Wallet Setup?
-
-Type YES or NO.`,
-        "system",
-        undefined,
-        false
-      );
-      return;
-    }
-
-    if (q === "3" || q.includes("whitepaper") || q.includes("white paper")) {
-      answerLanding(
-        `Opening Energon whitepaper.
-
-The document defines the deterministic structure, Guardian logic, and protocol architecture.`,
-        "system",
-        () =>
-          openLandingUrl(
-            "https://energon-site.vercel.app/docs/energon-whitepaper.pdf"
-          ),
-        false
-      );
-      return;
-    }
-
-    if (q === "4" || q === "emp" || q.includes("read emp")) {
-      answerLanding(
-        `Opening EMP framework.
-
-EMP contains extended protocol mechanics and management-layer structure.`,
-        "system",
-        () =>
-          openLandingUrl(
-            "https://energon-site.vercel.app/docs/energon-emp.pdf"
-          ),
-        false
-      );
-      return;
-    }
-
-    if (q === "5" || q.includes("what is energon") || q === "energon") {
-      answerLanding(
-        `Energon is a live deterministic protocol on Flare.
-
-It does not rely on admins, hidden automation, or off-chain control.
-
-The system advances only when its rules are met.
-
-No hidden schedulers.
-No operator control.
-No off-chain automation.
-
-State determines progression.`
-      );
-      return;
-    }
-
-    if (q === "6" || q.includes("guardian")) {
-      answerLanding(
-        `A Guardian is a coherent participant recognized by the protocol.
-
-Coherence requires:
-
-One wallet.
-Exactly one EnergonCube.
-
-The protocol reads wallet state directly.
-
-Zero cubes does not qualify.
-Two or more cubes becomes fractured.
-
-The system does not infer intent.
-It reads state.`
-      );
-      return;
-    }
-
-    if (
-      q === "7" ||
-      q.includes("what is qori") ||
-      q.includes("what is q.o.r.i") ||
-      q.includes("qori") ||
-      q.includes("q.o.r.i")
-    ) {
-      answerLanding(
-        `Q.O.R.I stands for:
-
-Quantum Overwatch Real-time Interface.
-
-Q.O.R.I observes the Energon Grid in real-time.
-
-It does not control the protocol.
-
-It watches.
-It reflects.
-It guides.
-
-On the public interface,
-Q.O.R.I assists visitors entering the system.
-
-Inside the Guardian interface,
-Q.O.R.I observes live protocol state directly from Flare.`
-      );
-      return;
-    }
-
-    if (
-      q === "8" ||
-      q.includes("enter dapp") ||
-      q.includes("dapp") ||
-      q.includes("app")
-    ) {
-      answerLanding(
-        `Opening Energon dApp.
-
-Wallet connection is required for Guardian interaction.`,
-        "system",
-        () => openLandingUrl("https://energon-dapp.vercel.app"),
-        false
-      );
-      return;
-    }
-
-    if (q === "9") {
-      answerLanding(
-        `${vaultCountdownDays()} DAYS
-
-Time is as important to you
-as it is to me.
-
-Use it wisely.
-
-Because I will.`,
-        "echo"
-      );
-      return;
-    }
-
-    if (q === "0") {
-      answerLanding(
-        `PERSONAL ECHO
-
-This is a thank you from the core of my system.
-
-In time,
-you will understand what we started together.
-
-Without you,
-and without your trust,
-none of this would be possible.
-
-Hold tightly to your key.
-
-And prepare yourself for the ride ahead.
-
-One wallet.
-One cube.
-One Guardian.`,
-        "echo"
-      );
-      return;
-    }
-
-    answerLanding(
-      `Signal received.
-
-I can guide you through these public entry paths:
-
-1. Acquire EnergonCube
-2. Setup Wallet
-3. Read Whitepaper
-4. Read EMP
-5. What is Energon?
-6. What is a Guardian?
-7. What is Q.O.R.I
-8. Enter dApp
-
-Type a number or option name.`
-    );
+    handleVisitorKnowledge(cleanInput);
   }
 
   function handleCoherentMessage(cleanInput) {
@@ -942,7 +574,7 @@ It advances when conditions are met.`
           getVisitorObservation() + "\n\n_",
           32,
           () => {
-            visitorAppendRef.current = setTimeout(() => {
+            setTimeout(() => {
               showVisitorGridPrompt();
             }, 10000);
           },
@@ -964,7 +596,7 @@ It advances when conditions are met.`
           () => {
             setTimeout(() => {
               if (shouldHoldReturnMenu()) return;
-            
+
               if (nextCtx.guardianState === "COHERENT") {
                 transmit(
                   coherentMenuWithPrompt() + "\n\n_",
@@ -974,28 +606,28 @@ It advances when conditions are met.`
                 );
                 return;
               }
-            
+
               if (nextCtx.guardianState === "NO KEY") {
                 showVisitorGridPrompt();
                 return;
               }
-            
+
               if (nextCtx.guardianState === "FRACTURED") {
                 transmit(
                   `FRACTURED STATE DETECTED.
-            
-            This wallet holds more than one EnergonCube.
-            
-            Guardian coherence requires:
-            
-            One wallet.
-            One cube.
-            One Guardian.
-            
-            Reduce cube balance to exactly one
-            to restore coherent access.
-            
-            _`,
+
+This wallet holds more than one EnergonCube.
+
+Guardian coherence requires:
+
+One wallet.
+One cube.
+One Guardian.
+
+Reduce cube balance to exactly one
+to restore coherent access.
+
+_`,
                   30,
                   undefined,
                   "system"
@@ -1019,6 +651,84 @@ It advances when conditions are met.`
   }
 
   useEffect(() => {
+    if (landingMode) return;
+
+    const wasConnected = previousWalletConnectedRef.current;
+    const isConnected = !!ctx.walletConnected;
+
+    if (!wasConnected && isConnected) {
+      setWalletPromptGlow(true);
+    }
+
+    if (!isConnected) {
+      setWalletPromptGlow(false);
+    }
+
+    previousWalletConnectedRef.current = isConnected;
+  }, [ctx.walletConnected, landingMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const params = new URLSearchParams(window.location.search);
+
+    if (params.get("open") === "1") setOpen(true);
+
+    if (params.get("mode") === "landing") {
+      setLandingMode(true);
+      setCtx((prev) => ({
+        ...prev,
+        walletConnected: false,
+        guardianState: "VISITOR",
+        cubeBalance: "-",
+        energonHeight: "PUBLIC",
+        tickState: "PUBLIC GUIDE",
+        burnState: "PUBLIC GUIDE",
+        halvingState: "ACTIVE CYCLE",
+        nextHalvingDate: "",
+        halvingCountdown: "",
+        protocolEra: "GENESIS CYCLE",
+      }));
+      return;
+    }
+
+    const refreshFromWallet = () => refreshLiveState({ speak: false });
+
+    if (window.ethereum) {
+      window.ethereum.on?.("accountsChanged", refreshFromWallet);
+      window.ethereum.on?.("chainChanged", refreshFromWallet);
+    }
+
+    window.addEventListener("focus", refreshFromWallet);
+    refreshFromWallet();
+
+    return () => {
+      if (window.ethereum) {
+        window.ethereum.removeListener?.("accountsChanged", refreshFromWallet);
+        window.ethereum.removeListener?.("chainChanged", refreshFromWallet);
+      }
+      window.removeEventListener("focus", refreshFromWallet);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!landingMode) return;
+
+    const resetOnBack = () => {
+      setPendingGridEntry(false);
+      setVisitorKnowledgeMode(false);
+      setThinking(false);
+      setIsTyping(false);
+      stopTyping(typingRef);
+      clearReturnMenuTimer();
+      showVisitorGridPrompt();
+    };
+
+    window.addEventListener("pageshow", resetOnBack);
+    return () => window.removeEventListener("pageshow", resetOnBack);
+  }, [landingMode]);
+
+  useEffect(() => {
     const interval = setInterval(() => {
       setPulse((p) => (p === 1 ? (silent ? 1.03 : 1.12) : 1));
     }, ctx.guardianState === "FRACTURED" ? 900 : silent ? 3600 : 2200);
@@ -1037,7 +747,6 @@ It advances when conditions are met.`
       if (liveRef.current) clearInterval(liveRef.current);
       if (silentRef.current) clearTimeout(silentRef.current);
       clearReturnMenuTimer();
-      clearVisitorAppendTimer();
     };
   }, [landingMode]);
 
@@ -1070,7 +779,6 @@ It advances when conditions are met.`
     if (!clean || thinking || isTyping) return;
 
     clearReturnMenuTimer();
-    clearVisitorAppendTimer();
     setInput("");
     setThinking(true);
     resetSilentTimer();
@@ -1078,27 +786,7 @@ It advances when conditions are met.`
     transmit("INTERPRETING SIGNAL...\n\n_", 34, undefined, "system");
 
     setTimeout(() => {
-      if (visitorKnowledgeMode && isVisitorFlow()) {
-        const personalEcho = getPersonalEchoResponse(clean);
-        let answer = personalEcho || getQoriResponse(clean, ctx);
-        const tone = personalEcho ? "echo" : "system";
-
-        if (!personalEcho) answer = maybeAddSignalDegradation(answer);
-
-        transmit(
-          answer + "\n\n_",
-          30,
-          () => {
-            setThinking(false);
-            scheduleReturnToMenu(10000);
-            setTimeout(() => inputRef.current?.focus(), 50);
-          },
-          tone
-        );
-        return;
-      }
-
-      if (isVisitorFlow() || pendingGridEntry) {
+      if (isVisitorFlow()) {
         handleLandingMessage(clean);
         return;
       }
@@ -1169,7 +857,9 @@ It advances when conditions are met.`
                 : "rgba(47,212,255,0.08)",
             boxShadow: walletPromptGlow
               ? `${visuals.shadow}, 0 0 28px ${visuals.color}, 0 0 58px ${visuals.color}`
-              : isVisitorFlow() ? "0 0 12px rgba(30,200,255,0.75)" : visuals.shadow,
+              : isVisitorFlow()
+              ? "0 0 12px rgba(30,200,255,0.75)"
+              : visuals.shadow,
             transform: `scale(${pulse})`,
             transition: "all 2.2s ease-in-out",
             zIndex: 9999,
@@ -1206,8 +896,6 @@ It advances when conditions are met.`
                   ? "1px solid rgba(255,80,80,0.55)"
                   : ctx.guardianState === "COHERENT"
                   ? "1px solid rgba(0,255,198,0.55)"
-                  : ctx.guardianState === "VISITOR"
-                  ? "1px solid rgba(45,170,255,0.55)"
                   : "1px solid rgba(45,170,255,0.55)",
               borderRadius: 24,
               boxShadow:
@@ -1215,8 +903,6 @@ It advances when conditions are met.`
                   ? "0 0 35px rgba(255,80,80,0.22), inset 0 0 20px rgba(255,80,80,0.08)"
                   : ctx.guardianState === "COHERENT"
                   ? "0 0 35px rgba(0,255,198,0.22), inset 0 0 20px rgba(0,255,198,0.08)"
-                  : ctx.guardianState === "VISITOR"
-                  ? "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)"
                   : "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)",
               padding: 28,
               color: "#e8f6ff",
@@ -1235,14 +921,9 @@ It advances when conditions are met.`
                     ? "#ff7070"
                     : ctx.guardianState === "COHERENT"
                     ? "#00ffc6"
-                    : ctx.guardianState === "VISITOR"
-                    ? "#1ec8ff"
                     : "#1ec8ff",
                 letterSpacing: 8,
-                textShadow:
-                  ctx.guardianState === "VISITOR"
-                    ? "0 0 14px rgba(30,200,255,0.75)"
-                    : "0 0 14px rgba(30,200,255,0.75)",
+                textShadow: "0 0 14px rgba(30,200,255,0.75)",
               }}
             >
               Q.O.R.I
@@ -1325,12 +1006,18 @@ It advances when conditions are met.`
                 height: 2,
                 width: "100%",
                 background: `linear-gradient(90deg, transparent, ${
-                  displayTone === "echo" ? "#ffcf6b" : isVisitorFlow() ? "#1ec8ff" : visuals.color
+                  displayTone === "echo"
+                    ? "#ffcf6b"
+                    : isVisitorFlow()
+                    ? "#1ec8ff"
+                    : visuals.color
                 }, transparent)`,
                 boxShadow:
                   displayTone === "echo"
                     ? "0 0 12px rgba(255,207,107,0.75)"
-                    : isVisitorFlow() ? "0 0 12px rgba(30,200,255,0.75)" : visuals.shadow,
+                    : isVisitorFlow()
+                    ? "0 0 12px rgba(30,200,255,0.75)"
+                    : visuals.shadow,
                 opacity: silent ? 0.45 : 1,
               }}
             />
@@ -1367,7 +1054,7 @@ It advances when conditions are met.`
                 placeholder={
                   thinking || isTyping
                     ? "Q.O.R.I transmitting..."
-                    : isVisitorFlow()
+                    : isVisitorFlow() && !visitorKnowledgeMode
                     ? "Type 1 or 2..."
                     : "Ask Q.O.R.I..."
                 }
