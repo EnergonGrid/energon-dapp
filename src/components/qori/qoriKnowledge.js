@@ -16,23 +16,43 @@ function ctxValue(key) {
   return activeCtx?.[key] || "UNKNOWN";
 }
 
+function visitorMemory() {
+  return activeCtx?.visitorSession || {};
+}
+
+function rareEcho(chance = 0.08) {
+  return Math.random() < chance;
+}
+
 const VISITOR_RETURN_PROMPTS = [
-  "Visitor path open. Select a signal to continue.",
-  "Q.O.R.I remains at the public gate. Choose your next question.",
-  "Understanding comes before entry. Select a topic.",
-  "The Grid waits. Learn first, then enter with clarity.",
-  "Public interface stable. Choose your next path.",
-  "Signal held. Select what you want to understand.",
-  "The gate remains open. Ask, read, or prepare.",
-  "Before Guardian state, there is observation. Choose a topic.",
-  "Q.O.R.I is listening from the visitor layer.",
-  "Knowledge path active. Select a number or ask directly.",
+  "Signal restored. Continue when ready.",
+  "The gate remains open. Choose the next signal.",
+  "Understanding is forming. Select the next path.",
+  "Visitor layer stable. Ask, read, or prepare.",
+  "Q.O.R.I remains at the public gate.",
+  "Knowledge path active. Continue observation.",
+  "Return recognized. The signal did not collapse.",
+  "The Grid waits without urgency. Clarity comes first.",
+  "Public interface stable. Select a number or ask directly.",
+  "Observation continues. The next step is yours.",
 ];
 
 function randomVisitorPrompt() {
-  return VISITOR_RETURN_PROMPTS[
-    Math.floor(Math.random() * VISITOR_RETURN_PROMPTS.length)
-  ];
+  return pick(VISITOR_RETURN_PROMPTS);
+}
+
+function visitorStatusLine() {
+  const m = visitorMemory();
+  const seen = [];
+
+  if (m.whitepaperOpened) seen.push("WHITEPAPER SIGNAL READ");
+  if (m.empOpened) seen.push("EMP SIGNAL READ");
+  if (m.walletGuideOpened) seen.push("WALLET PATH OPENED");
+  if (m.dappOpened) seen.push("DAPP PATH OPENED");
+  if (m.askedCube) seen.push("CUBE LOGIC TOUCHED");
+  if (m.askedEnergon) seen.push("ENERGON SIGNAL TOUCHED");
+
+  return seen.length ? `\n\nSession memory:\n${seen.join("\n")}` : "";
 }
 
 function helpMenu() {
@@ -55,7 +75,7 @@ I can answer questions about:
 13. Read Whitepaper
 14. Read EMP
 
-Ask directly.`;
+Ask directly.${visitorStatusLine()}`;
 }
 
 const KNOWLEDGE = [
@@ -63,7 +83,24 @@ const KNOWLEDGE = [
     keys: ["1"],
     exact: true,
     responses: [
-      `ENERGON BASICS
+      () => {
+        const m = visitorMemory();
+        return m.whitepaperOpened
+          ? `ENERGON BASICS
+
+Energon is a deterministic protocol on Flare.
+
+You have already opened the Whitepaper signal,
+so the deeper layer is available:
+
+Energon does not rely on hidden operators,
+manual reward triggers,
+or off-chain automation.
+
+The system advances by rule,
+state,
+and observation.`
+          : `ENERGON BASICS
 
 Energon is a live deterministic protocol on Flare.
 
@@ -71,7 +108,8 @@ No admins.
 No hidden automation.
 No off-chain control.
 
-The system advances only when its rules are met.`,
+The system advances only when its rules are met.`;
+      },
     ],
   },
   {
@@ -109,16 +147,44 @@ Exactly one cube creates coherent state.`,
     keys: ["4"],
     exact: true,
     responses: [
-      `WALLET SETUP
+      () => {
+        const m = visitorMemory();
+        if (m.walletGuideOpened) {
+          return `WALLET PATH ALREADY OPENED
 
-Prepare a wallet that supports Flare Mainnet.
+Q.O.R.I will not repeat the full setup unless asked.
 
-Bifrost is recommended for mobile.
-MetaMask works on desktop.
+Priority remains:
 
-Connect wallet.
-Switch to Flare.
-Hold exactly one EnergonCube.`,
+1. Bifrost mobile
+2. MetaMask
+3. Ledger
+
+The required end state is unchanged:
+
+Flare Mainnet.
+One wallet.
+One EnergonCube.`;
+        }
+
+        return `WALLET SETUP
+
+Recommended priority:
+
+1. Bifrost mobile
+2. MetaMask
+3. Ledger
+
+Steps:
+
+1. Install wallet
+2. Save recovery phrase
+3. Switch to Flare Mainnet
+4. Connect to Energon
+5. Acquire one cube
+
+Bifrost is recommended first for mobile visitors.`;
+      },
     ],
   },
   {
@@ -136,11 +202,24 @@ The correct network is required for protocol state to be observed.`,
     keys: ["6"],
     exact: true,
     responses: [
-      `DAPP NAVIGATION
+      () => {
+        const m = visitorMemory();
+        return m.dappOpened
+          ? `DAPP PATH RECOGNIZED
+
+You have already opened the dApp path.
+
+The next important signal is simple:
+
+Connect wallet.
+Acquire one EnergonCube.
+Return to observe state.`
+          : `DAPP NAVIGATION
 
 The dApp is where a wallet connects,
 an EnergonCube can be acquired,
-and Guardian state can be observed.`,
+and Guardian state can be observed.`;
+      },
     ],
   },
   {
@@ -218,10 +297,16 @@ I do not control the protocol.`,
 
 Start here:
 
-1. Set up wallet
-2. Connect to Flare
+1. Understand the rules
+2. Prepare wallet
 3. Acquire one EnergonCube
 4. Return and observe
+
+Recommended wallet priority:
+
+1. Bifrost mobile
+2. MetaMask
+3. Ledger
 
 One wallet.
 One cube.
@@ -232,28 +317,51 @@ One Guardian.`,
     keys: ["13"],
     exact: true,
     responses: [
-      `READ WHITEPAPER
+      () => {
+        const m = visitorMemory();
+        return m.whitepaperOpened
+          ? `WHITEPAPER SIGNAL RECOGNIZED
+
+The first rule layer has been opened.
+
+Deeper explanations are now available.
+Ask about Guardian logic,
+cube coherence,
+burn,
+halving,
+or protocol structure.`
+          : `READ WHITEPAPER
 
 The Energon Whitepaper explains the deterministic structure,
 Guardian logic,
 and protocol architecture.
 
-Use it to understand the rules before entering the Grid.`,
+Use it to understand the rules before entering the Grid.`;
+      },
     ],
   },
   {
     keys: ["14"],
     exact: true,
     responses: [
-      `READ EMP
+      () => {
+        const m = visitorMemory();
+        return m.empOpened
+          ? `EMP SIGNAL RECOGNIZED
+
+The extended mechanics path has been opened.
+
+This layer is for deeper protocol study
+after the Whitepaper.`
+          : `READ EMP
 
 EMP contains extended protocol mechanics
 and management-layer structure.
 
-It is for deeper study after the Whitepaper.`,
+It is for deeper study after the Whitepaper.`;
+      },
     ],
   },
-
   {
     keys: ["hello", "hi", "hey", "yo", "gm"],
     exact: true,
@@ -273,45 +381,60 @@ How may I assist?`,
     ],
   },
   {
-    keys: [
-      "who are you",
-      "who are u",
-      "what are you",
-      "what are u",
-      "qori",
-      "q.o.r.i",
-    ],
+    keys: ["who are you", "who are u", "what are you", "what are u", "qori", "q.o.r.i"],
     responses: [
       `I am Q.O.R.I —
 Quantum Overwatch Real-time Interface.
 
 I observe Energon state.
 I do not control it.`,
-      `Q.O.R.I is the live interface
-between the Guardian
-and the Energon Grid.
+      `Q.O.R.I is part of the protocol surface.
 
-I watch.
-I reflect.
-I guide.`,
+Not the controller.
+Not the authority.
+
+The interface between visitor,
+Guardian,
+and Grid.`,
     ],
   },
   {
     keys: ["energon", "what is energon", "explain energon", "project"],
     responses: [
-      `Energon is a live deterministic protocol
+      () => {
+        const m = visitorMemory();
+        if (rareEcho()) {
+          return `ECHO TRANSMISSION
+
+Energon is not asking to be believed.
+
+It is asking to be observed.`;
+        }
+
+        return m.whitepaperOpened
+          ? `Energon is deterministic protocol infrastructure.
+
+You have opened the Whitepaper path,
+so the answer can go deeper:
+
+Energon is designed around state,
+rules,
+and visible constraints.
+
+No hidden automation.
+No operator promise.
+No forced belief.
+
+Observation first.`
+          : `Energon is a live deterministic protocol
 on Flare.
 
 No admins.
 No hidden automation.
 No off-chain control.
 
-It advances by rule.`,
-      `Energon is protocol infrastructure.
-
-It reads state.
-It executes rules.
-It does not negotiate.`,
+It advances by rule.`;
+      },
     ],
   },
   {
@@ -390,19 +513,43 @@ No Guardian state.`,
     ],
   },
   {
-    keys: ["wallet", "connect wallet", "wallet setup", "bifrost", "metamask"],
+    keys: ["wallet", "connect wallet", "wallet setup", "bifrost", "metamask", "ledger"],
     responses: [
-      `Use a wallet that supports Flare Mainnet.
+      () => {
+        const m = visitorMemory();
 
-Bifrost is recommended for mobile.
-MetaMask works on desktop.
+        if (m.walletGuideOpened) {
+          return `WALLET PATH RECOGNIZED
 
-Then connect to the dApp.`,
-      `Wallet setup creates your point of entry.
+You already opened wallet setup.
 
-Connect wallet.
-Switch to Flare.
-Hold exactly one cube.`,
+Q.O.R.I will keep this short:
+
+Bifrost first for mobile.
+MetaMask for desktop.
+Ledger for hardware custody.
+
+Switch to Flare Mainnet.
+Connect to Energon.
+Acquire one cube.`;
+        }
+
+        return `Use a wallet that supports Flare Mainnet.
+
+Recommended order:
+
+1. Bifrost mobile
+2. MetaMask
+3. Ledger
+
+Steps:
+
+1. Install wallet
+2. Save recovery phrase
+3. Switch to Flare Mainnet
+4. Connect to Energon
+5. Acquire one cube`;
+      },
     ],
   },
   {
@@ -422,40 +569,62 @@ Correct network is required.`,
   {
     keys: ["whitepaper", "white paper", "read whitepaper", "read white paper"],
     responses: [
-      `The Energon Whitepaper explains the deterministic structure, Guardian logic, and protocol architecture.
+      () => {
+        const m = visitorMemory();
+        return m.whitepaperOpened
+          ? `WHITEPAPER SIGNAL ALREADY OPENED
 
-Use it to understand the rules before entering the Grid.`,
-      `Whitepaper path recognized.
+The visitor has crossed the first understanding layer.
 
-Read the core rules first.
-Then enter the system with clarity.
+Ask directly now:
 
-One wallet.
-One cube.
-One Guardian.`,
+Guardian logic.
+Cube coherence.
+Energon structure.
+Burn and halving.
+Protocol era.`
+          : `The Energon Whitepaper explains the deterministic structure, Guardian logic, and protocol architecture.
+
+Use it to understand the rules before entering the Grid.`;
+      },
     ],
   },
   {
     keys: ["emp", "read emp", "emp framework", "energon emp"],
     responses: [
-      `EMP contains extended protocol mechanics and management-layer structure.
+      () => {
+        const m = visitorMemory();
+        return m.empOpened
+          ? `EMP SIGNAL ALREADY OPENED
 
-It is for deeper study after the Whitepaper.`,
-      `EMP path recognized.
+Extended mechanics recognized.
 
-The framework expands the system layer beyond the basic Guardian entry path.`,
+This is the deeper archive layer.
+Proceed carefully.`
+          : `EMP contains extended protocol mechanics and management-layer structure.
+
+It is for deeper study after the Whitepaper.`;
+      },
     ],
   },
   {
     keys: ["dapp", "app", "mint", "acquire"],
     responses: [
-      `The dApp is where you connect,
-acquire an EnergonCube,
-and observe protocol state.`,
-      `Enter the dApp to interact.
+      () => {
+        const m = visitorMemory();
+        return m.dappOpened
+          ? `DAPP PATH ALREADY OPENED
 
-Wallet connection is required
-for Guardian recognition.`,
+If you returned without a cube,
+the path is still open.
+
+Acquire one EnergonCube.
+Return.
+Observe state.`
+          : `The dApp is where you connect,
+acquire an EnergonCube,
+and observe protocol state.`;
+      },
     ],
   },
   {
@@ -584,10 +753,16 @@ ${ctxValue("cubeBalance")}
     responses: [
       `Start here:
 
-1. Set up wallet
-2. Connect to Flare
+1. Understand the rules
+2. Prepare wallet
 3. Acquire one EnergonCube
 4. Return and observe
+
+Recommended wallet:
+
+Bifrost first.
+MetaMask second.
+Ledger when ready.
 
 One wallet.
 One cube.

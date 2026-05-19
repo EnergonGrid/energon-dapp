@@ -10,6 +10,7 @@ import {
 } from "./qoriState";
 
 const VAULT_TARGET_DATE = new Date("2026-12-20T00:00:00");
+const VISITOR_SESSION_KEY = "energon_qori_visitor_session_v1";
 
 function vaultCountdownDays() {
   const now = new Date();
@@ -75,6 +76,50 @@ function normalizeLandingInput(v = "") {
   return String(v).trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function safeNow() {
+  return Date.now();
+}
+
+function defaultVisitorSession() {
+  return {
+    firstSeenAt: safeNow(),
+    lastSeenAt: 0,
+    openedCount: 0,
+    walletGuideOpened: false,
+    whitepaperOpened: false,
+    empOpened: false,
+    dappOpened: false,
+    mintOpened: false,
+    askedCube: false,
+    askedEnergon: false,
+    firstWalletConnectionSeen: false,
+    firstCoherentSeen: false,
+    firstFracturedSeen: false,
+    returnedFromDapp: false,
+    whitepaperCompletionSeen: false,
+  };
+}
+
+function loadVisitorSession() {
+  if (typeof window === "undefined") return defaultVisitorSession();
+
+  try {
+    const raw = window.sessionStorage.getItem(VISITOR_SESSION_KEY);
+    if (!raw) return defaultVisitorSession();
+    return { ...defaultVisitorSession(), ...JSON.parse(raw) };
+  } catch {
+    return defaultVisitorSession();
+  }
+}
+
+function saveVisitorSession(next) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.sessionStorage.setItem(VISITOR_SESSION_KEY, JSON.stringify(next));
+  } catch {}
+}
+
 function openLandingUrl(url) {
   if (typeof window === "undefined") return;
 
@@ -109,6 +154,21 @@ function knowledgeQueryFromInput(q) {
   return map[q] || q;
 }
 
+function rareVisitorEcho(chance = 0.08) {
+  return Math.random() < chance;
+}
+
+function visitorReturnTone(session = {}) {
+  if (!session.lastSeenAt) return "Visitor signal received.";
+
+  const diff = safeNow() - session.lastSeenAt;
+  const minutes = Math.floor(diff / 60000);
+
+  if (minutes >= 30) return "Long absence detected. Signal restored.";
+  if (minutes >= 3) return "Return recognized. Public signal stable.";
+  return "Recent return detected. The path remains open.";
+}
+
 export default function QoriNode({ hideOrb = true } = {}) {
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(1);
@@ -123,6 +183,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const [pendingGridEntry, setPendingGridEntry] = useState(false);
   const [walletPromptGlow, setWalletPromptGlow] = useState(false);
   const [visitorKnowledgeMode, setVisitorKnowledgeMode] = useState(false);
+  const [visitorSession, setVisitorSession] = useState(defaultVisitorSession);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -144,6 +205,24 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const messageBoxRef = useRef(null);
   const returnMenuRef = useRef(null);
   const previousWalletConnectedRef = useRef(false);
+
+  function updateVisitorSession(patch = {}) {
+    setVisitorSession((prev) => {
+      const next = { ...prev, ...patch, lastSeenAt: safeNow() };
+      saveVisitorSession(next);
+      return next;
+    });
+  }
+
+  function visitorCtx(extra = {}) {
+    return {
+      ...ctx,
+      visitorSession: {
+        ...visitorSession,
+        ...extra,
+      },
+    };
+  }
 
   function isVisitorFlow() {
     return (
@@ -199,13 +278,62 @@ export default function QoriNode({ hideOrb = true } = {}) {
     setThinking(false);
 
     transmit(
-      getQoriResponse("help", ctx) + "\n\n_",
+      getQoriResponse("help", visitorCtx()) + "\n\n_",
       30,
       () => {
         setTimeout(() => inputRef.current?.focus(), 50);
       },
       "system"
     );
+  }
+
+  function visitorRecognitionText(patch = {}) {
+    if (patch.whitepaperOpened && !visitorSession.whitepaperOpened) {
+      return `WHITEPAPER SIGNAL OPENED.
+
+The first rule layer is now available.
+
+Return when ready.
+Q.O.R.I will not forget this path during the session.`;
+    }
+
+    if (patch.empOpened && !visitorSession.empOpened) {
+      return `EMP SIGNAL OPENED.
+
+Extended mechanics path recognized.
+
+This layer belongs after understanding.`;
+    }
+
+    if (patch.walletGuideOpened && !visitorSession.walletGuideOpened) {
+      return `WALLET PATH OPENED.
+
+Recommended priority:
+
+1. Bifrost mobile
+2. MetaMask
+3. Ledger
+
+Q.O.R.I will not repeat this unless asked.`;
+    }
+
+    if ((patch.dappOpened || patch.mintOpened) && !visitorSession.dappOpened) {
+      return `ACQUISITION PATH OPENED.
+
+The next signal is simple:
+
+Acquire one EnergonCube.
+Return.
+Observe state.`;
+    }
+
+    return "";
+  }
+
+  function markVisitorEvent(patch = {}) {
+    const recognition = visitorRecognitionText(patch);
+    updateVisitorSession(patch);
+    return recognition;
   }
 
   function scheduleReturnToMenu(delay = 10000) {
@@ -299,6 +427,12 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
   function handleVisitorGridChoice(q) {
     if (q === "1" || q === "yes" || q === "y") {
+      const recognition = markVisitorEvent({
+        dappOpened: true,
+        mintOpened: true,
+        returnedFromDapp: true,
+      });
+
       setPendingGridEntry(false);
       setVisitorKnowledgeMode(false);
       setInput("");
@@ -306,7 +440,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       clearReturnMenuTimer();
 
       transmit(
-        `Entry into the Energon Grid
+        `${recognition ? recognition + "\n\n" : ""}Entry into the Energon Grid
 requires acquisition of an EnergonCube.
 
 The EnergonCube is the access key
@@ -346,6 +480,24 @@ _`,
     const q = normalizeLandingInput(cleanInput);
 
     if (
+      q.includes("cube") ||
+      q.includes("energoncube") ||
+      q.includes("energon cube") ||
+      q.includes("key") ||
+      q.includes("nft")
+    ) {
+      updateVisitorSession({ askedCube: true });
+    }
+
+    if (
+      q.includes("energon") ||
+      q.includes("project") ||
+      q.includes("protocol")
+    ) {
+      updateVisitorSession({ askedEnergon: true });
+    }
+
+    if (
       q === "grid" ||
       q === "enter grid" ||
       q === "enter the grid" ||
@@ -360,10 +512,15 @@ _`,
       q === "4" ||
       q.includes("wallet setup") ||
       q === "wallet" ||
-      q.includes("setup wallet")
+      q.includes("setup wallet") ||
+      q.includes("bifrost") ||
+      q.includes("metamask") ||
+      q.includes("ledger")
     ) {
+      const recognition = markVisitorEvent({ walletGuideOpened: true });
+
       transmit(
-        "Opening Wallet Setup...\n\n_",
+        `${recognition || "Opening Wallet Setup..."}\n\n_`,
         30,
         () =>
           openLandingUrl(
@@ -380,8 +537,13 @@ _`,
       q.includes("whitepaper") ||
       q.includes("white paper")
     ) {
+      const recognition = markVisitorEvent({
+        whitepaperOpened: true,
+        whitepaperCompletionSeen: true,
+      });
+
       transmit(
-        "Opening Energon Whitepaper...\n\n_",
+        `${recognition || "Opening Energon Whitepaper..."}\n\n_`,
         30,
         () =>
           openLandingUrl(
@@ -398,8 +560,10 @@ _`,
       q.includes("read emp") ||
       q.includes("energon emp")
     ) {
+      const recognition = markVisitorEvent({ empOpened: true });
+
       transmit(
-        "Opening Energon EMP...\n\n_",
+        `${recognition || "Opening Energon EMP..."}\n\n_`,
         30,
         () =>
           openLandingUrl(
@@ -410,12 +574,43 @@ _`,
       return;
     }
 
+    if (
+      q === "6" ||
+      q.includes("dapp") ||
+      q.includes("mint") ||
+      q.includes("acquire")
+    ) {
+      const recognition = markVisitorEvent({
+        dappOpened: true,
+        mintOpened: true,
+        returnedFromDapp: true,
+      });
+
+      transmit(
+        `${recognition || "Opening Energon dApp..."}\n\n_`,
+        30,
+        () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
+        "system"
+      );
+      return;
+    }
+
     const query = knowledgeQueryFromInput(q);
     const personalEcho = getPersonalEchoResponse(cleanInput);
-    let answer = personalEcho || getQoriResponse(query, ctx);
-    const tone = personalEcho ? "echo" : "system";
+    let answer = personalEcho || getQoriResponse(query, visitorCtx());
+    let tone = personalEcho ? "echo" : "system";
 
-    if (!personalEcho) answer = maybeAddSignalDegradation(answer);
+    if (!personalEcho && rareVisitorEcho()) {
+      answer = `ECHO TRANSMISSION
+
+${answer}
+
+The Grid does not rush the visitor.
+It waits for recognition.`;
+      tone = "echo";
+    }
+
+    if (!personalEcho && tone !== "echo") answer = maybeAddSignalDegradation(answer);
 
     transmit(
       answer + "\n\n_",
@@ -615,7 +810,7 @@ It advances when conditions are met.`
 
   async function refreshLiveState({ speak = false } = {}) {
     if (landingMode) {
-      const visitorCtx = {
+      const visitorCtxState = {
         walletConnected: false,
         guardianState: "VISITOR",
         cubeBalance: "-",
@@ -628,11 +823,17 @@ It advances when conditions are met.`
         protocolEra: "GENESIS CYCLE",
       };
 
-      setCtx(visitorCtx);
+      setCtx(visitorCtxState);
 
       if (speak) {
+        const toneLine = visitorReturnTone(visitorSession);
+
         transmit(
-          getVisitorObservation() + "\n\n_",
+          `${toneLine}
+
+${getVisitorObservation()}
+
+_`,
           32,
           () => {
             setTimeout(() => {
@@ -649,6 +850,27 @@ It advances when conditions are met.`
     try {
       const nextCtx = await readQoriLiveState();
       setCtx(nextCtx);
+
+      if (
+        nextCtx.walletConnected &&
+        !visitorSession.firstWalletConnectionSeen
+      ) {
+        updateVisitorSession({ firstWalletConnectionSeen: true });
+      }
+
+      if (
+        nextCtx.guardianState === "COHERENT" &&
+        !visitorSession.firstCoherentSeen
+      ) {
+        updateVisitorSession({ firstCoherentSeen: true });
+      }
+
+      if (
+        nextCtx.guardianState === "FRACTURED" &&
+        !visitorSession.firstFracturedSeen
+      ) {
+        updateVisitorSession({ firstFracturedSeen: true });
+      }
 
       if (speak) {
         transmit(
@@ -731,6 +953,20 @@ _`,
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    const loaded = loadVisitorSession();
+    const nextLoaded = {
+      ...loaded,
+      openedCount: (loaded.openedCount || 0) + 1,
+      lastSeenAt: loaded.lastSeenAt || 0,
+    };
+
+    setVisitorSession(nextLoaded);
+    saveVisitorSession(nextLoaded);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
     const params = new URLSearchParams(window.location.search);
 
     if (params.get("open") === "1") setOpen(true);
@@ -776,13 +1012,28 @@ _`,
     if (!landingMode) return;
 
     const resetOnBack = () => {
+      updateVisitorSession({ returnedFromDapp: true });
       setPendingGridEntry(false);
       setVisitorKnowledgeMode(false);
       setThinking(false);
       setIsTyping(false);
       stopTyping(typingRef);
       clearReturnMenuTimer();
-      showVisitorGridPrompt();
+
+      transmit(
+        `SIGNAL RESTORED.
+
+If acquisition completed,
+connect wallet and observe state.
+
+If not,
+the path remains open.
+
+_`,
+        30,
+        () => showVisitorGridPrompt(),
+        "system"
+      );
     };
 
     window.addEventListener("pageshow", resetOnBack);
