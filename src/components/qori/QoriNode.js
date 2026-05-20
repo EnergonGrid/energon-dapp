@@ -257,6 +257,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }
 
   function handleVisitorMessage(cleanInput) {
+    screenRef.current = "answer";
     const q = normalizeInput(cleanInput);
     const query = visitorQueryFromInput(q);
 
