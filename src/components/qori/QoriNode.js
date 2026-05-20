@@ -1,20 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  getQoriResponse,
-  getVisitorMenu,
-} from "./qoriKnowledge";
-
+import { getQoriResponse, getVisitorMenu } from "./qoriKnowledge";
 import {
   getVisitorEchoResponse,
   getCoherentEchoResponse,
 } from "./qoriPersonalEchoes";
-
-import {
-  typeText,
-  stopTyping,
-  maybeAddSignalDegradation,
-} from "./qoriEffects";
-
+import { typeText, stopTyping, maybeAddSignalDegradation } from "./qoriEffects";
 import {
   getStateVisuals,
   getSystemObservation,
@@ -28,6 +18,9 @@ const COHERENT_RETURN_PROMPTS = [
   "Q.O.R.I remains synchronized with the protocol.",
   "The Energon system is active. Choose your next query.",
   "Coherent state stable. Awaiting Guardian instruction.",
+  "Live protocol observation continues. Select an option.",
+  "The Grid continues to advance through rule and state.",
+  "Guardian interface remains online. Additional paths available.",
 ];
 
 function randomCoherentPrompt() {
@@ -115,7 +108,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const inputRef = useRef(null);
   const messageBoxRef = useRef(null);
   const returnMenuRef = useRef(null);
-  const screenRef = useRef("menu");
+  const screenRef = useRef("boot");
   const previousWalletConnectedRef = useRef(false);
 
   function isVisitorFlow() {
@@ -143,9 +136,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   function resetSilentTimer() {
     setSilent(false);
 
-    if (silentRef.current) {
-      clearTimeout(silentRef.current);
-    }
+    if (silentRef.current) clearTimeout(silentRef.current);
 
     silentRef.current = setTimeout(() => {
       setSilent(true);
@@ -165,37 +156,25 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
   function transmit(text, speed = 32, onDone, tone = "system") {
     stopTyping(typingRef);
-
+    resetSilentTimer();
     setDisplayTone(tone);
     setIsTyping(true);
 
     typingRef.current = typeText(text, setDisplayText, speed, () => {
       setIsTyping(false);
-
-      if (typeof onDone === "function") {
-        onDone();
-      }
+      if (typeof onDone === "function") onDone();
     });
   }
 
   function showVisitorMenu() {
     clearReturnMenuTimer();
-
     screenRef.current = "menu";
-
     setThinking(false);
-    setDisplayTone("system");
-
-    stopTyping(typingRef);
 
     transmit(
       getVisitorMenu() + "\n\n_",
       30,
-      () => {
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 50);
-      },
+      () => setTimeout(() => inputRef.current?.focus(), 50),
       "system"
     );
   }
@@ -218,6 +197,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }
 
   function scheduleReturnToCoherentMenu(delay = 10000) {
+    if (landingMode) return;
+
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
@@ -231,7 +212,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       transmit(
         coherentMenuWithPrompt() + "\n\n_",
         30,
-        undefined,
+        () => setTimeout(() => inputRef.current?.focus(), 50),
         "system"
       );
     }, delay);
@@ -242,44 +223,30 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
     returnMenuRef.current = setTimeout(() => {
       if (String(nextValue).trim() || userIsTypingOrHoldingText()) {
-        if (isVisitorFlow()) {
-          scheduleReturnToVisitorMenu(10000);
-        } else {
-          scheduleReturnToCoherentMenu(10000);
-        }
-
+        if (isVisitorFlow()) scheduleReturnToVisitorMenu(10000);
+        else scheduleReturnToCoherentMenu(10000);
         return;
       }
 
-      if (isVisitorFlow()) {
-        showVisitorMenu();
-      } else {
+      if (isVisitorFlow()) showVisitorMenu();
+      else {
         screenRef.current = "menu";
-
-        transmit(
-          coherentMenuWithPrompt() + "\n\n_",
-          30,
-          undefined,
-          "system"
-        );
+        transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
       }
     }, 10000);
   }
 
   function answerLive(text, tone = "system") {
     clearReturnMenuTimer();
-
     screenRef.current = "answer";
 
     transmit(
       text + "\n\n_",
       30,
       () => {
+        setThinking(false);
         scheduleReturnToCoherentMenu(10000);
-
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 50);
+        setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
     );
@@ -295,12 +262,9 @@ export default function QoriNode({ hideOrb = true } = {}) {
       transmit(
         "Opening Wallet Setup...\n\n_",
         30,
-        () => {
-          openLandingUrl("https://energon-site.vercel.app/wallet-setup.html");
-        },
+        () => openLandingUrl("https://energon-site.vercel.app/wallet-setup.html"),
         "system"
       );
-
       return;
     }
 
@@ -308,14 +272,12 @@ export default function QoriNode({ hideOrb = true } = {}) {
       transmit(
         "Opening Energon Whitepaper...\n\n_",
         30,
-        () => {
+        () =>
           openLandingUrl(
             "https://energon-site.vercel.app/docs/energon-whitepaper.pdf"
-          );
-        },
+          ),
         "system"
       );
-
       return;
     }
 
@@ -323,18 +285,14 @@ export default function QoriNode({ hideOrb = true } = {}) {
       transmit(
         "Opening Energon EMP...\n\n_",
         30,
-        () => {
-          openLandingUrl(
-            "https://energon-site.vercel.app/docs/energon-emp.pdf"
-          );
-        },
+        () =>
+          openLandingUrl("https://energon-site.vercel.app/docs/energon-emp.pdf"),
         "system"
       );
-
       return;
     }
 
-    if (q === "7" || q.includes("mint")) {
+    if (q === "7" || q.includes("mint") || q.includes("dapp")) {
       transmit(
         `Opening Energon Mint Site...
 
@@ -346,33 +304,25 @@ One Guardian.
 
 _`,
         30,
-        () => {
-          openLandingUrl("https://energon-dapp.vercel.app/mint");
-        },
+        () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
         "system"
       );
-
       return;
     }
 
     const visitorEcho = getVisitorEchoResponse(cleanInput);
-
     let answer = visitorEcho || getQoriResponse(query, ctx);
     const tone = visitorEcho ? "echo" : "system";
 
-    if (!visitorEcho) {
-      answer = maybeAddSignalDegradation(answer);
-    }
+    if (!visitorEcho) answer = maybeAddSignalDegradation(answer);
 
     transmit(
       answer + "\n\n_",
       30,
       () => {
+        setThinking(false);
         scheduleReturnToVisitorMenu(10000);
-
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 50);
+        setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
     );
@@ -527,13 +477,10 @@ It advances when conditions are met.`
     }
 
     const coherentEcho = getCoherentEchoResponse(cleanInput);
-
     let answer = coherentEcho || getQoriResponse(cleanInput, ctx);
     const tone = coherentEcho ? "echo" : "system";
 
-    if (!coherentEcho) {
-      answer = maybeAddSignalDegradation(answer);
-    }
+    if (!coherentEcho) answer = maybeAddSignalDegradation(answer);
 
     transmit(
       answer + "\n\n_",
@@ -541,10 +488,7 @@ It advances when conditions are met.`
       () => {
         setThinking(false);
         scheduleReturnToCoherentMenu(10000);
-
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 50);
+        setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
     );
@@ -573,11 +517,7 @@ It advances when conditions are met.`
         transmit(
           getVisitorObservation() + "\n\n_",
           32,
-          () => {
-            setTimeout(() => {
-              showVisitorMenu();
-            }, 2500);
-          },
+          () => setTimeout(showVisitorMenu, 900),
           "system"
         );
       }
@@ -587,14 +527,50 @@ It advances when conditions are met.`
 
     try {
       const nextCtx = await readQoriLiveState();
-
       setCtx(nextCtx);
 
       if (speak) {
         transmit(
           getSystemObservation(nextCtx) + "\n\n_",
           32,
-          undefined,
+          () => {
+            setTimeout(() => {
+              if (userIsTypingOrHoldingText()) return;
+
+              if (nextCtx.guardianState === "COHERENT") {
+                screenRef.current = "menu";
+                transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
+                return;
+              }
+
+              if (nextCtx.guardianState === "NO KEY") {
+                showVisitorMenu();
+                return;
+              }
+
+              if (nextCtx.guardianState === "FRACTURED") {
+                transmit(
+                  `FRACTURED STATE DETECTED.
+
+This wallet holds more than one EnergonCube.
+
+Guardian coherence requires:
+
+One wallet.
+One cube.
+One Guardian.
+
+Reduce cube balance to exactly one
+to restore coherent access.
+
+_`,
+                  30,
+                  undefined,
+                  "system"
+                );
+              }
+            }, 10000);
+          },
           "system"
         );
       }
@@ -616,13 +592,8 @@ It advances when conditions are met.`
     const wasConnected = previousWalletConnectedRef.current;
     const isConnected = !!ctx.walletConnected;
 
-    if (!wasConnected && isConnected) {
-      setWalletPromptGlow(true);
-    }
-
-    if (!isConnected) {
-      setWalletPromptGlow(false);
-    }
+    if (!wasConnected && isConnected) setWalletPromptGlow(true);
+    if (!isConnected) setWalletPromptGlow(false);
 
     previousWalletConnectedRef.current = isConnected;
   }, [ctx.walletConnected, landingMode]);
@@ -632,18 +603,10 @@ It advances when conditions are met.`
 
     const params = new URLSearchParams(window.location.search);
 
-    if (params.get("open") === "1") {
-      setOpen(true);
-    }
+    if (params.get("open") === "1") setOpen(true);
+    if (params.get("mode") === "landing") setLandingMode(true);
 
-    if (params.get("mode") === "landing") {
-      setLandingMode(true);
-    }
-
-    const refreshFromWallet = () =>
-      refreshLiveState({
-        speak: false,
-      });
+    const refreshFromWallet = () => refreshLiveState({ speak: false });
 
     window.ethereum?.on?.("accountsChanged", refreshFromWallet);
     window.ethereum?.on?.("chainChanged", refreshFromWallet);
@@ -663,29 +626,38 @@ It advances when conditions are met.`
 
     const restoreVisitor = () => {
       clearReturnMenuTimer();
-
       stopTyping(typingRef);
-
       setThinking(false);
       setIsTyping(false);
-
       showVisitorMenu();
     };
 
     window.addEventListener("pageshow", restoreVisitor);
 
-    return () => {
-      window.removeEventListener("pageshow", restoreVisitor);
-    };
+    return () => window.removeEventListener("pageshow", restoreVisitor);
   }, [landingMode]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       setPulse((p) => (p === 1 ? (silent ? 1.03 : 1.12) : 1));
-    }, silent ? 3600 : 2200);
+    }, ctx.guardianState === "FRACTURED" ? 900 : silent ? 3600 : 2200);
 
     return () => clearInterval(interval);
-  }, [silent]);
+  }, [ctx.guardianState, silent]);
+
+  useEffect(() => {
+    refreshLiveState();
+
+    liveRef.current = setInterval(() => {
+      refreshLiveState();
+    }, 60000);
+
+    return () => {
+      if (liveRef.current) clearInterval(liveRef.current);
+      if (silentRef.current) clearTimeout(silentRef.current);
+      clearReturnMenuTimer();
+    };
+  }, [landingMode]);
 
   useEffect(() => {
     if (!open) return;
@@ -697,44 +669,33 @@ It advances when conditions are met.`
       35,
       () => {
         if (landingMode) {
-          setTimeout(() => {
-            showVisitorMenu();
-          }, 900);
+          setTimeout(showVisitorMenu, 900);
         } else {
-          refreshLiveState({
-            speak: true,
-          });
+          refreshLiveState({ speak: true });
         }
 
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 250);
+        setTimeout(() => inputRef.current?.focus(), 250);
       },
       "system"
     );
 
-    return () => {
-      stopTyping(typingRef);
-    };
+    return () => stopTyping(typingRef);
   }, [open, landingMode]);
 
   useEffect(() => {
     if (!messageBoxRef.current) return;
-
     messageBoxRef.current.scrollTop = messageBoxRef.current.scrollHeight;
   }, [displayText]);
 
   function sendMessage() {
     const clean = input.trim();
 
-    if (!clean || thinking || isTyping) {
-      return;
-    }
+    if (!clean || thinking || isTyping) return;
 
     clearReturnMenuTimer();
-
     setInput("");
     setThinking(true);
+    resetSilentTimer();
 
     transmit("INTERPRETING SIGNAL...\n\n_", 34, undefined, "system");
 
@@ -750,13 +711,18 @@ It advances when conditions are met.`
 
   function openQoriNode() {
     setWalletPromptGlow(false);
-
     setOpen(true);
-
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 450);
+    setTimeout(() => inputRef.current?.focus(), 450);
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const openFromProtocol = () => openQoriNode();
+    window.addEventListener("energon:open-qori", openFromProtocol);
+
+    return () => window.removeEventListener("energon:open-qori", openFromProtocol);
+  }, []);
 
   return (
     <>
@@ -764,19 +730,27 @@ It advances when conditions are met.`
         <button
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
+          onTouchStart={() => setHovered(true)}
+          onTouchEnd={() => setHovered(false)}
           onClick={openQoriNode}
           aria-label="Open Q.O.R.I"
+          title={`Q.O.R.I: ${ctx.guardianState || "ONLINE"}`}
           style={{
             position: "fixed",
             top: 34,
             left: 24,
-            width: hovered ? 16 : 12,
-            height: hovered ? 16 : 12,
-            opacity: hovered ? 1 : 0.28,
+            width: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
+            height: walletPromptGlow ? 18 : hovered ? 16 : silent ? 10 : 12,
+            opacity: walletPromptGlow ? 1 : hovered ? 1 : silent ? 0.18 : 0.28,
             borderRadius: "50%",
             border: visuals.border,
-            background: visuals.color,
-            boxShadow: "0 0 12px rgba(30,200,255,0.75)",
+            background:
+              walletPromptGlow || hovered
+                ? visuals.color
+                : "rgba(47,212,255,0.08)",
+            boxShadow: isVisitorFlow()
+              ? "0 0 12px rgba(30,200,255,0.75)"
+              : visuals.shadow,
             transform: `scale(${pulse})`,
             transition: "all 2.2s ease-in-out",
             zIndex: 9999,
@@ -794,23 +768,14 @@ It advances when conditions are met.`
               {landingMode ? "VISITOR INTERFACE" : "GUARDIAN INTERFACE"}
             </div>
 
-            <div
-              style={{
-                ...stateStyle,
-                color: activeTextColor,
-              }}
-            >
+            <div style={{ ...stateStyle, color: activeTextColor }}>
               STATE: {ctx.guardianState || "UNKNOWN"} · ERA:{" "}
               {ctx.protocolEra || "UNKNOWN"}
             </div>
 
             <div
               ref={messageBoxRef}
-              style={messageBoxStyle(
-                displayTone,
-                activeTextColor,
-                activeTextShadow
-              )}
+              style={messageBoxStyle(displayTone, activeTextColor, activeTextShadow)}
             >
               {displayText}
             </div>
@@ -823,7 +788,7 @@ It advances when conditions are met.`
                 : "Q.O.R.I IS LISTENING"}
             </div>
 
-            <div style={beamStyle} />
+            <div style={beamStyle(displayTone, isVisitorFlow(), visuals)} />
 
             <div style={inputWrapStyle}>
               <input
@@ -833,17 +798,12 @@ It advances when conditions are met.`
                 onFocus={resetSilentTimer}
                 onChange={(e) => {
                   const nextValue = e.target.value;
-
                   setInput(nextValue);
-
                   resetSilentTimer();
-
                   resetReturnMenuAfterTyping(nextValue);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    sendMessage();
-                  }
+                  if (e.key === "Enter") sendMessage();
                 }}
                 placeholder={
                   thinking || isTyping
@@ -888,13 +848,22 @@ function panelStyle(ctx) {
     width: 430,
     maxWidth: "92vw",
     height: 620,
+    maxHeight: "90vh",
+    overflow: "hidden",
     background: "rgba(2, 10, 20, 0.97)",
     border:
-      ctx.guardianState === "COHERENT"
+      ctx.guardianState === "FRACTURED"
+        ? "1px solid rgba(255,80,80,0.55)"
+        : ctx.guardianState === "COHERENT"
         ? "1px solid rgba(0,255,198,0.55)"
         : "1px solid rgba(45,170,255,0.55)",
     borderRadius: 24,
-    boxShadow: "0 0 35px rgba(0,140,255,0.25)",
+    boxShadow:
+      ctx.guardianState === "FRACTURED"
+        ? "0 0 35px rgba(255,80,80,0.22), inset 0 0 20px rgba(255,80,80,0.08)"
+        : ctx.guardianState === "COHERENT"
+        ? "0 0 35px rgba(0,255,198,0.22), inset 0 0 20px rgba(0,255,198,0.08)"
+        : "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)",
     padding: 28,
     color: "#e8f6ff",
     fontFamily: "monospace",
@@ -904,7 +873,12 @@ function panelStyle(ctx) {
 function titleStyle(ctx) {
   return {
     fontSize: 34,
-    color: ctx.guardianState === "COHERENT" ? "#00ffc6" : "#1ec8ff",
+    color:
+      ctx.guardianState === "FRACTURED"
+        ? "#ff7070"
+        : ctx.guardianState === "COHERENT"
+        ? "#00ffc6"
+        : "#1ec8ff",
     letterSpacing: 8,
     textShadow: "0 0 14px rgba(30,200,255,0.75)",
   };
@@ -918,14 +892,35 @@ function messageBoxStyle(displayTone, activeTextColor, activeTextShadow) {
         : "1px solid rgba(45,170,255,0.35)",
     borderRadius: 14,
     padding: 18,
-    background: "rgba(0,20,40,0.35)",
+    background:
+      displayTone === "echo" ? "rgba(75,48,0,0.22)" : "rgba(0,20,40,0.35)",
     color: activeTextColor,
     lineHeight: 1.7,
     fontSize: 15,
     height: 230,
+    maxHeight: 230,
     overflowY: "auto",
     whiteSpace: "pre-wrap",
     textShadow: activeTextShadow,
+  };
+}
+
+function beamStyle(displayTone, visitorFlow, visuals) {
+  const color =
+    displayTone === "echo" ? "#ffcf6b" : visitorFlow ? "#1ec8ff" : visuals.color;
+
+  return {
+    marginTop: 12,
+    height: 2,
+    width: "100%",
+    background: `linear-gradient(90deg, transparent, ${color}, transparent)`,
+    boxShadow:
+      displayTone === "echo"
+        ? "0 0 12px rgba(255,207,107,0.75)"
+        : visitorFlow
+        ? "0 0 12px rgba(30,200,255,0.75)"
+        : visuals.shadow,
+    opacity: 1,
   };
 }
 
@@ -934,12 +929,14 @@ const subTitleStyle = {
   marginBottom: 10,
   fontSize: 11,
   letterSpacing: 4,
+  opacity: 0.85,
 };
 
 const stateStyle = {
   marginBottom: 14,
   fontSize: 11,
   letterSpacing: 3,
+  opacity: 0.9,
 };
 
 const statusStyle = {
@@ -947,14 +944,6 @@ const statusStyle = {
   fontSize: 13,
   letterSpacing: 3,
   fontWeight: 700,
-};
-
-const beamStyle = {
-  marginTop: 12,
-  height: 2,
-  width: "100%",
-  background: "linear-gradient(90deg, transparent, #1ec8ff, transparent)",
-  boxShadow: "0 0 12px rgba(30,200,255,0.75)",
 };
 
 const inputWrapStyle = {
