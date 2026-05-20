@@ -1,5 +1,8 @@
 function normalize(input = "") {
-  return String(input).toLowerCase().trim().replace(/\s+/g, " ");
+  return String(input)
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
 }
 
 function pick(list = []) {
@@ -51,42 +54,96 @@ const KNOWLEDGE = [
     responses: [
       `ENERGON
 
-Energon is a live deterministic protocol built on Flare.
+Energon is a deterministic protocol built on Flare.
+
+The system operates through fixed rules,
+observable state,
+and protocol progression.
 
 No admins.
 No hidden automation.
-No off-chain control.
+No operator intervention.
 
-Maximum EON supply:
-30,000,000.`,
+Energon does not react to hype,
+emotion,
+or social consensus.
+
+The protocol advances only when
+its conditions are met.
+
+EON is the native asset of the system.
+
+Maximum supply:
+30,000,000 EON.
+
+Energon was designed around
+long-form progression,
+guardian participation,
+and observable protocol state.
+
+Q.O.R.I observes the system.
+
+Q.O.R.I does not control it.`,
     ],
   },
+
   {
     keys: ["2", "what is energongrid", "what is energon grid"],
     exact: true,
     responses: [
       `ENERGONGRID
 
-EnergonGrid is the live protocol environment.
+EnergonGrid is the public observation layer
+surrounding the Energon protocol.
 
-It is where Guardian state,
+It is where Guardians observe:
+
+• protocol state
+• guardian state
+• tick progression
+• burn activity
+• halving cycles
+• deterministic advancement
+
+The Grid is not the protocol itself.
+
+The Grid is the interface between
+observation and participation.
+
 Observer systems,
-and protocol interaction exist.
+dashboard systems,
+Q.O.R.I,
+and Guardian interfaces
+exist within the Grid.
 
-The Grid reads state.
-It does not negotiate.`,
+The Grid responds to state.
+
+It does not create state.
+
+The system remains live
+whether anyone is watching or not.`,
     ],
   },
+
   {
     keys: ["3", "what is energoncube", "what is energon cube"],
     exact: true,
     responses: [
       `ENERGONCUBE
 
-The EnergonCube is the protocol key.
+EnergonCube is the Guardian key.
 
-Maximum cube supply:
-1,000,000.
+It is not a profile picture.
+It is not a collectible badge.
+
+It is an access artifact
+connected to coherent system state.
+
+Maximum supply:
+1,000,000 cubes.
+
+Guardian coherence follows
+a fixed rule:
 
 0 cubes:
 NO KEY
@@ -97,11 +154,24 @@ COHERENT
 2 or more cubes:
 FRACTURED
 
+The protocol recognizes
+exact balance coherence.
+
 One wallet.
 One cube.
-One Guardian.`,
+One Guardian.
+
+The Cube unlocks access
+to deeper Energon interaction,
+Guardian systems,
+and coherent observation paths.
+
+The Grid is visible to all.
+
+Entry requires a key.`,
     ],
   },
+
   {
     keys: ["8", "closing thought", "final thought"],
     exact: true,
@@ -121,6 +191,7 @@ One cube.
 One Guardian.`,
     ],
   },
+
   {
     keys: ["energongrid", "energon grid"],
     responses: [
@@ -134,6 +205,7 @@ Observer,
 and Guardian access.`,
     ],
   },
+
   {
     keys: ["energoncube", "energon cube", "cube", "nft", "key"],
     responses: [
@@ -153,6 +225,7 @@ COHERENT
 FRACTURED`,
     ],
   },
+
   {
     keys: ["energon", "project", "protocol"],
     responses: [
@@ -167,6 +240,7 @@ Maximum EON supply:
 30,000,000.`,
     ],
   },
+
   {
     keys: ["wallet", "wallet setup", "bifrost", "metamask", "ledger"],
     responses: [
@@ -185,6 +259,7 @@ Bifrost is recommended first for mobile.
 MetaMask and Ledger are also supported.`,
     ],
   },
+
   {
     keys: ["whitepaper", "white paper"],
     responses: [
@@ -200,6 +275,7 @@ The Whitepaper explains:
 Read the rules before entering the Grid.`,
     ],
   },
+
   {
     keys: ["emp"],
     responses: [
@@ -211,6 +287,7 @@ It is intended after the Whitepaper
 for extended understanding.`,
     ],
   },
+
   {
     keys: ["mint", "mint site", "dapp", "open mint", "acquire"],
     responses: [
@@ -225,6 +302,7 @@ The mint interface is where:
 One cube establishes coherent state.`,
     ],
   },
+
   {
     keys: ["hello", "hi", "hey", "gm"],
     exact: true,
@@ -234,11 +312,13 @@ One cube establishes coherent state.`,
 Q.O.R.I online.
 
 Visitor signal stable.`,
+
       `Signal received.
 
 Welcome to Energon.`,
     ],
   },
+
   {
     keys: ["who are you", "qori", "q.o.r.i"],
     responses: [
@@ -253,6 +333,7 @@ I guide.
 I do not control the protocol.`,
     ],
   },
+
   {
     keys: ["start", "begin", "new here", "how do i start"],
     responses: [
@@ -269,6 +350,7 @@ One cube.
 One Guardian.`,
     ],
   },
+
   {
     keys: ["help", "menu", "options"],
     responses: [getVisitorMenu],
@@ -278,7 +360,9 @@ One Guardian.`,
 export function getQoriResponse(input = "") {
   const q = normalize(input);
 
-  if (!q) return getVisitorMenu();
+  if (!q) {
+    return getVisitorMenu();
+  }
 
   for (const item of KNOWLEDGE) {
     const matched = item.exact
@@ -287,7 +371,10 @@ export function getQoriResponse(input = "") {
 
     if (matched) {
       const response = pick(item.responses);
-      return typeof response === "function" ? response() : response;
+
+      return typeof response === "function"
+        ? response()
+        : response;
     }
   }
 
