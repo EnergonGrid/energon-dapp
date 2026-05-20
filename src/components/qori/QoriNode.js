@@ -231,10 +231,44 @@ export default function QoriNode({ hideOrb = true } = {}) {
       transmit(
         coherentMenuWithPrompt() + "\n\n_",
         30,
-        undefined,
+        () => {
+          screenRef.current = "menu";
+        },
         "system"
       );
     }, delay);
+  }
+
+  function resetReturnMenuAfterTyping(nextValue = "") {
+    clearReturnMenuTimer();
+
+    returnMenuRef.current = setTimeout(() => {
+      if (
+        String(nextValue).trim() ||
+        userIsTypingOrHoldingText()
+      ) {
+        if (isVisitorFlow()) {
+          scheduleReturnToVisitorMenu(10000);
+        } else {
+          scheduleReturnToCoherentMenu(10000);
+        }
+
+        return;
+      }
+
+      if (isVisitorFlow()) {
+        showVisitorMenu();
+      } else {
+        transmit(
+          coherentMenuWithPrompt() + "\n\n_",
+          30,
+          () => {
+            screenRef.current = "menu";
+          },
+          "system"
+        );
+      }
+    }, 10000);
   }
 
   function answerLive(text, tone = "system") {
@@ -258,10 +292,9 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
   function handleVisitorMessage(cleanInput) {
     screenRef.current = "answer";
+
     const q = normalizeInput(cleanInput);
     const query = visitorQueryFromInput(q);
-
-    screenRef.current = "answer";
 
     if (
       q === "4" ||
@@ -662,13 +695,6 @@ _`,
 
       {open && (
         <div style={overlayStyle}>
-          <button
-            onClick={() => setOpen(false)}
-            style={outsideCloseStyle}
-          >
-            ×
-          </button>
-
           <div style={panelStyle(ctx)}>
             <div style={titleStyle(ctx)}>
               Q.O.R.I
@@ -726,11 +752,16 @@ _`,
                   resetSilentTimer
                 }
                 onChange={(e) => {
-                  setInput(
-                    e.target.value
-                  );
+                  const nextValue =
+                    e.target.value;
+
+                  setInput(nextValue);
 
                   resetSilentTimer();
+
+                  resetReturnMenuAfterTyping(
+                    nextValue
+                  );
                 }}
                 onKeyDown={(e) => {
                   if (
@@ -777,18 +808,6 @@ const overlayStyle = {
   justifyContent: "center",
   zIndex: 10000,
   padding: 18,
-};
-
-const outsideCloseStyle = {
-  position: "fixed",
-  top: 28,
-  right: 34,
-  background: "transparent",
-  border: "none",
-  color: "#fff",
-  fontSize: 42,
-  cursor: "pointer",
-  zIndex: 10001,
 };
 
 function panelStyle(ctx) {
