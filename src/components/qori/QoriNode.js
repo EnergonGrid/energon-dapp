@@ -9,21 +9,20 @@ import {
   readQoriLiveState,
 } from "./qoriState";
 
-const VAULT_TARGET_DATE = new Date("2026-12-20T00:00:00");
-const VISITOR_SESSION_KEY = "energon_qori_visitor_session_v1";
+const VISITOR_MENU = `Welcome to Energon.
 
-function vaultCountdownDays() {
-  const now = new Date();
-  const diff = VAULT_TARGET_DATE.getTime() - now.getTime();
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-}
+Q.O.R.I can guide your first steps.
 
-const GRID_ENTRY_PROMPT = `Would you like to enter the Energon Grid?
+1. What is Energon?
+2. What is EnergonGrid?
+3. What is EnergonCube?
+4. Wallet Setup
+5. Read Whitepaper
+6. Read EMP
+7. Open Mint Site
+8. Closing Thought
 
-1. Yes
-2. No
-
-Type 1 or 2.`;
+Type a number or ask directly.`;
 
 const COHERENT_RETURN_PROMPTS = [
   "The Grid remains coherent. Select a system path.",
@@ -72,52 +71,8 @@ const COHERENT_HELP_MENU = `Q.O.R.I can assist with:
 
 Type a number or ask directly.`;
 
-function normalizeLandingInput(v = "") {
+function normalizeInput(v = "") {
   return String(v).trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function safeNow() {
-  return Date.now();
-}
-
-function defaultVisitorSession() {
-  return {
-    firstSeenAt: safeNow(),
-    lastSeenAt: 0,
-    openedCount: 0,
-    walletGuideOpened: false,
-    whitepaperOpened: false,
-    empOpened: false,
-    dappOpened: false,
-    mintOpened: false,
-    askedCube: false,
-    askedEnergon: false,
-    firstWalletConnectionSeen: false,
-    firstCoherentSeen: false,
-    firstFracturedSeen: false,
-    returnedFromDapp: false,
-    whitepaperCompletionSeen: false,
-  };
-}
-
-function loadVisitorSession() {
-  if (typeof window === "undefined") return defaultVisitorSession();
-
-  try {
-    const raw = window.sessionStorage.getItem(VISITOR_SESSION_KEY);
-    if (!raw) return defaultVisitorSession();
-    return { ...defaultVisitorSession(), ...JSON.parse(raw) };
-  } catch {
-    return defaultVisitorSession();
-  }
-}
-
-function saveVisitorSession(next) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.sessionStorage.setItem(VISITOR_SESSION_KEY, JSON.stringify(next));
-  } catch {}
 }
 
 function openLandingUrl(url) {
@@ -133,40 +88,19 @@ function openLandingUrl(url) {
   window.location.href = url;
 }
 
-function knowledgeQueryFromInput(q) {
+function visitorQueryFromInput(q) {
   const map = {
-    "1": "energon basics",
-    "2": "guardian rules",
-    "3": "energoncube logic",
+    "1": "what is energon",
+    "2": "what is energongrid",
+    "3": "what is energoncube",
     "4": "wallet setup",
-    "5": "flare network",
-    "6": "dapp navigation",
-    "7": "observer",
-    "8": "dashboard",
-    "9": "evault",
-    "10": "burn and halving",
-    "11": "qori identity",
-    "12": "newcomer guidance",
-    "13": "read whitepaper",
-    "14": "read emp",
+    "5": "read whitepaper",
+    "6": "read emp",
+    "7": "mint",
+    "8": "closing thought",
   };
 
   return map[q] || q;
-}
-
-function rareVisitorEcho(chance = 0.08) {
-  return Math.random() < chance;
-}
-
-function visitorReturnTone(session = {}) {
-  if (!session.lastSeenAt) return "Visitor signal received.";
-
-  const diff = safeNow() - session.lastSeenAt;
-  const minutes = Math.floor(diff / 60000);
-
-  if (minutes >= 30) return "Long absence detected. Signal restored.";
-  if (minutes >= 3) return "Return recognized. Public signal stable.";
-  return "Recent return detected. The path remains open.";
 }
 
 export default function QoriNode({ hideOrb = true } = {}) {
@@ -180,10 +114,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const [silent, setSilent] = useState(false);
   const [hovered, setHovered] = useState(false);
   const [landingMode, setLandingMode] = useState(false);
-  const [pendingGridEntry, setPendingGridEntry] = useState(false);
   const [walletPromptGlow, setWalletPromptGlow] = useState(false);
-  const [visitorKnowledgeMode, setVisitorKnowledgeMode] = useState(false);
-  const [visitorSession, setVisitorSession] = useState(defaultVisitorSession);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -206,24 +137,6 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const returnMenuRef = useRef(null);
   const previousWalletConnectedRef = useRef(false);
 
-  function updateVisitorSession(patch = {}) {
-    setVisitorSession((prev) => {
-      const next = { ...prev, ...patch, lastSeenAt: safeNow() };
-      saveVisitorSession(next);
-      return next;
-    });
-  }
-
-  function visitorCtx(extra = {}) {
-    return {
-      ...ctx,
-      visitorSession: {
-        ...visitorSession,
-        ...extra,
-      },
-    };
-  }
-
   function isVisitorFlow() {
     return (
       landingMode ||
@@ -235,7 +148,11 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const visuals = getStateVisuals(ctx.guardianState, silent);
 
   const activeTextColor =
-    displayTone === "echo" ? "#ffcf6b" : isVisitorFlow() ? "#1ec8ff" : visuals.color;
+    displayTone === "echo"
+      ? "#ffcf6b"
+      : isVisitorFlow()
+      ? "#1ec8ff"
+      : visuals.color;
 
   const activeTextShadow =
     displayTone === "echo"
@@ -255,7 +172,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     }
   }
 
-  function shouldHoldReturnMenu() {
+  function userIsTypingOrHoldingText() {
     return !!inputRef.current?.value?.trim();
   }
 
@@ -271,83 +188,33 @@ export default function QoriNode({ hideOrb = true } = {}) {
     });
   }
 
-  function showKnowledgeMenu() {
+  function showVisitorMenu() {
     clearReturnMenuTimer();
-    setPendingGridEntry(false);
-    setVisitorKnowledgeMode(true);
     setThinking(false);
 
     transmit(
-      getQoriResponse("help", visitorCtx()) + "\n\n_",
+      VISITOR_MENU + "\n\n_",
       30,
       () => {
         setTimeout(() => inputRef.current?.focus(), 50);
+        scheduleReturnToVisitorMenu(10000);
       },
       "system"
     );
   }
 
-  function visitorRecognitionText(patch = {}) {
-    if (patch.whitepaperOpened && !visitorSession.whitepaperOpened) {
-      return `WHITEPAPER SIGNAL OPENED.
-
-The first rule layer is now available.
-
-Return when ready.
-Q.O.R.I will not forget this path during the session.`;
-    }
-
-    if (patch.empOpened && !visitorSession.empOpened) {
-      return `EMP SIGNAL OPENED.
-
-Extended mechanics path recognized.
-
-This layer belongs after understanding.`;
-    }
-
-    if (patch.walletGuideOpened && !visitorSession.walletGuideOpened) {
-      return `WALLET PATH OPENED.
-
-Recommended priority:
-
-1. Bifrost mobile
-2. MetaMask
-3. Ledger
-
-Q.O.R.I will not repeat this unless asked.`;
-    }
-
-    if ((patch.dappOpened || patch.mintOpened) && !visitorSession.dappOpened) {
-      return `ACQUISITION PATH OPENED.
-
-The next signal is simple:
-
-Acquire one EnergonCube.
-Return.
-Observe state.`;
-    }
-
-    return "";
-  }
-
-  function markVisitorEvent(patch = {}) {
-    const recognition = visitorRecognitionText(patch);
-    updateVisitorSession(patch);
-    return recognition;
-  }
-
-  function scheduleReturnToMenu(delay = 10000) {
+  function scheduleReturnToVisitorMenu(delay = 10000) {
     if (!isVisitorFlow()) return;
 
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
-      if (shouldHoldReturnMenu()) {
-        scheduleReturnToMenu(10000);
+      if (userIsTypingOrHoldingText()) {
+        scheduleReturnToVisitorMenu(10000);
         return;
       }
 
-      showKnowledgeMenu();
+      showVisitorMenu();
     }, delay);
   }
 
@@ -357,13 +224,13 @@ Observe state.`;
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
-      if (shouldHoldReturnMenu()) {
+      if (userIsTypingOrHoldingText()) {
         scheduleReturnToCoherentMenu(10000);
         return;
       }
 
       if (isVisitorFlow()) {
-        showKnowledgeMenu();
+        showVisitorMenu();
         return;
       }
 
@@ -375,18 +242,14 @@ Observe state.`;
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
-      if (String(nextValue).trim()) {
-        resetReturnMenuAfterTyping("");
-        return;
-      }
-
-      if (inputRef.current?.value?.trim()) {
-        resetReturnMenuAfterTyping("");
+      if (String(nextValue).trim() || userIsTypingOrHoldingText()) {
+        if (isVisitorFlow()) scheduleReturnToVisitorMenu(10000);
+        else scheduleReturnToCoherentMenu(10000);
         return;
       }
 
       if (isVisitorFlow()) {
-        showKnowledgeMenu();
+        showVisitorMenu();
       } else {
         transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
       }
@@ -408,142 +271,31 @@ Observe state.`;
     );
   }
 
-  function showVisitorGridPrompt() {
-    clearReturnMenuTimer();
-    setPendingGridEntry(true);
-    setVisitorKnowledgeMode(false);
-    setThinking(false);
-
-    transmit(
-      GRID_ENTRY_PROMPT + "\n\n_",
-      30,
-      () => {
-        setTimeout(() => inputRef.current?.focus(), 50);
-        scheduleReturnToMenu(10000);
-      },
-      "system"
-    );
-  }
-
-  function handleVisitorGridChoice(q) {
-    if (q === "1" || q === "yes" || q === "y") {
-      const recognition = markVisitorEvent({
-        dappOpened: true,
-        mintOpened: true,
-        returnedFromDapp: true,
-      });
-
-      setPendingGridEntry(false);
-      setVisitorKnowledgeMode(false);
-      setInput("");
-      setThinking(true);
-      clearReturnMenuTimer();
-
-      transmit(
-        `${recognition ? recognition + "\n\n" : ""}Entry into the Energon Grid
-requires acquisition of an EnergonCube.
-
-The EnergonCube is the access key
-recognized by the protocol.
-
-No cube means NO KEY.
-One cube means COHERENT.
-More than one cube means FRACTURED.
-
-One wallet.
-One cube.
-One Guardian.
-
-Opening acquisition interface...
-
-_`,
-        30,
-        () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
-        "system"
-      );
-
-      return true;
-    }
-
-    if (q === "2" || q === "no" || q === "n") {
-      setPendingGridEntry(false);
-      setVisitorKnowledgeMode(true);
-      setInput("");
-      showKnowledgeMenu();
-      return true;
-    }
-
-    return false;
-  }
-
-  function handleVisitorKnowledge(cleanInput) {
-    const q = normalizeLandingInput(cleanInput);
-
-    if (
-      q.includes("cube") ||
-      q.includes("energoncube") ||
-      q.includes("energon cube") ||
-      q.includes("key") ||
-      q.includes("nft")
-    ) {
-      updateVisitorSession({ askedCube: true });
-    }
-
-    if (
-      q.includes("energon") ||
-      q.includes("project") ||
-      q.includes("protocol")
-    ) {
-      updateVisitorSession({ askedEnergon: true });
-    }
-
-    if (
-      q === "grid" ||
-      q === "enter grid" ||
-      q === "enter the grid" ||
-      q === "back" ||
-      q === "return"
-    ) {
-      showVisitorGridPrompt();
-      return;
-    }
+  function handleVisitorMessage(cleanInput) {
+    const q = normalizeInput(cleanInput);
+    const query = visitorQueryFromInput(q);
 
     if (
       q === "4" ||
       q.includes("wallet setup") ||
-      q === "wallet" ||
-      q.includes("setup wallet") ||
-      q.includes("bifrost") ||
-      q.includes("metamask") ||
-      q.includes("ledger")
+      q.includes("setup wallet")
     ) {
-      const recognition = markVisitorEvent({ walletGuideOpened: true });
-
       transmit(
-        `${recognition || "Opening Wallet Setup..."}\n\n_`,
+        "Opening Wallet Setup...\n\n_",
         30,
-        () =>
-          openLandingUrl(
-            "https://energon-site.vercel.app/wallet-setup.html"
-          ),
+        () => openLandingUrl("https://energon-site.vercel.app/wallet-setup.html"),
         "system"
       );
       return;
     }
 
     if (
-      q === "13" ||
-      q.includes("read whitepaper") ||
+      q === "5" ||
       q.includes("whitepaper") ||
       q.includes("white paper")
     ) {
-      const recognition = markVisitorEvent({
-        whitepaperOpened: true,
-        whitepaperCompletionSeen: true,
-      });
-
       transmit(
-        `${recognition || "Opening Energon Whitepaper..."}\n\n_`,
+        "Opening Energon Whitepaper...\n\n_",
         30,
         () =>
           openLandingUrl(
@@ -554,16 +306,9 @@ _`,
       return;
     }
 
-    if (
-      q === "14" ||
-      q === "emp" ||
-      q.includes("read emp") ||
-      q.includes("energon emp")
-    ) {
-      const recognition = markVisitorEvent({ empOpened: true });
-
+    if (q === "6" || q === "emp" || q.includes("read emp")) {
       transmit(
-        `${recognition || "Opening Energon EMP..."}\n\n_`,
+        "Opening Energon EMP...\n\n_",
         30,
         () =>
           openLandingUrl(
@@ -575,19 +320,21 @@ _`,
     }
 
     if (
-      q === "6" ||
-      q.includes("dapp") ||
+      q === "7" ||
       q.includes("mint") ||
+      q.includes("dapp") ||
       q.includes("acquire")
     ) {
-      const recognition = markVisitorEvent({
-        dappOpened: true,
-        mintOpened: true,
-        returnedFromDapp: true,
-      });
-
       transmit(
-        `${recognition || "Opening Energon dApp..."}\n\n_`,
+        `Opening Energon Mint Site...
+
+The EnergonCube is the access key.
+
+One wallet.
+One cube.
+One Guardian.
+
+_`,
         30,
         () => openLandingUrl("https://energon-dapp.vercel.app/mint"),
         "system"
@@ -595,59 +342,26 @@ _`,
       return;
     }
 
-    const query = knowledgeQueryFromInput(q);
     const personalEcho = getPersonalEchoResponse(cleanInput);
-    let answer = personalEcho || getQoriResponse(query, visitorCtx());
-    let tone = personalEcho ? "echo" : "system";
+    let answer = personalEcho || getQoriResponse(query, ctx);
+    const tone = personalEcho ? "echo" : "system";
 
-    if (!personalEcho && rareVisitorEcho()) {
-      answer = `ECHO TRANSMISSION
-
-${answer}
-
-The Grid does not rush the visitor.
-It waits for recognition.`;
-      tone = "echo";
-    }
-
-    if (!personalEcho && tone !== "echo") answer = maybeAddSignalDegradation(answer);
+    if (!personalEcho) answer = maybeAddSignalDegradation(answer);
 
     transmit(
       answer + "\n\n_",
       30,
       () => {
         setThinking(false);
-        scheduleReturnToMenu(10000);
+        scheduleReturnToVisitorMenu(10000);
         setTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
     );
   }
 
-  function handleLandingMessage(cleanInput) {
-    const q = normalizeLandingInput(cleanInput);
-
-    if (pendingGridEntry && !visitorKnowledgeMode) {
-      if (handleVisitorGridChoice(q)) return;
-
-      transmit(
-        GRID_ENTRY_PROMPT + "\n\n_",
-        30,
-        () => {
-          setThinking(false);
-          scheduleReturnToMenu(10000);
-          setTimeout(() => inputRef.current?.focus(), 50);
-        },
-        "system"
-      );
-      return;
-    }
-
-    handleVisitorKnowledge(cleanInput);
-  }
-
   function handleCoherentMessage(cleanInput) {
-    const q = normalizeLandingInput(cleanInput);
+    const q = normalizeInput(cleanInput);
 
     if (
       q === "help" ||
@@ -794,23 +508,29 @@ It advances when conditions are met.`
       return true;
     }
 
-    if (q === "9") {
-      answerLive("Hidden signal placeholder.", "echo");
-      return true;
-    }
+    const personalEcho = getPersonalEchoResponse(cleanInput);
+    let answer = personalEcho || getQoriResponse(cleanInput, ctx);
+    const tone = personalEcho ? "echo" : "system";
 
-    if (q === "0") {
-      answerLive("Core echo placeholder.", "echo");
-      return true;
-    }
+    if (!personalEcho) answer = maybeAddSignalDegradation(answer);
 
-    answerLive(COHERENT_HELP_MENU);
+    transmit(
+      answer + "\n\n_",
+      30,
+      () => {
+        setThinking(false);
+        scheduleReturnToCoherentMenu(10000);
+        setTimeout(() => inputRef.current?.focus(), 50);
+      },
+      tone
+    );
+
     return true;
   }
 
   async function refreshLiveState({ speak = false } = {}) {
     if (landingMode) {
-      const visitorCtxState = {
+      const visitorCtx = {
         walletConnected: false,
         guardianState: "VISITOR",
         cubeBalance: "-",
@@ -823,23 +543,13 @@ It advances when conditions are met.`
         protocolEra: "GENESIS CYCLE",
       };
 
-      setCtx(visitorCtxState);
+      setCtx(visitorCtx);
 
       if (speak) {
-        const toneLine = visitorReturnTone(visitorSession);
-
         transmit(
-          `${toneLine}
-
-${getVisitorObservation()}
-
-_`,
+          getVisitorObservation() + "\n\n_",
           32,
-          () => {
-            setTimeout(() => {
-              showVisitorGridPrompt();
-            }, 10000);
-          },
+          () => setTimeout(showVisitorMenu, 10000),
           "system"
         );
       }
@@ -851,34 +561,13 @@ _`,
       const nextCtx = await readQoriLiveState();
       setCtx(nextCtx);
 
-      if (
-        nextCtx.walletConnected &&
-        !visitorSession.firstWalletConnectionSeen
-      ) {
-        updateVisitorSession({ firstWalletConnectionSeen: true });
-      }
-
-      if (
-        nextCtx.guardianState === "COHERENT" &&
-        !visitorSession.firstCoherentSeen
-      ) {
-        updateVisitorSession({ firstCoherentSeen: true });
-      }
-
-      if (
-        nextCtx.guardianState === "FRACTURED" &&
-        !visitorSession.firstFracturedSeen
-      ) {
-        updateVisitorSession({ firstFracturedSeen: true });
-      }
-
       if (speak) {
         transmit(
           getSystemObservation(nextCtx) + "\n\n_",
           32,
           () => {
             setTimeout(() => {
-              if (shouldHoldReturnMenu()) return;
+              if (userIsTypingOrHoldingText()) return;
 
               if (nextCtx.guardianState === "COHERENT") {
                 transmit(
@@ -891,7 +580,7 @@ _`,
               }
 
               if (nextCtx.guardianState === "NO KEY") {
-                showVisitorGridPrompt();
+                showVisitorMenu();
                 return;
               }
 
@@ -939,30 +628,11 @@ _`,
     const wasConnected = previousWalletConnectedRef.current;
     const isConnected = !!ctx.walletConnected;
 
-    if (!wasConnected && isConnected) {
-      setWalletPromptGlow(true);
-    }
-
-    if (!isConnected) {
-      setWalletPromptGlow(false);
-    }
+    if (!wasConnected && isConnected) setWalletPromptGlow(true);
+    if (!isConnected) setWalletPromptGlow(false);
 
     previousWalletConnectedRef.current = isConnected;
   }, [ctx.walletConnected, landingMode]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const loaded = loadVisitorSession();
-    const nextLoaded = {
-      ...loaded,
-      openedCount: (loaded.openedCount || 0) + 1,
-      lastSeenAt: loaded.lastSeenAt || 0,
-    };
-
-    setVisitorSession(nextLoaded);
-    saveVisitorSession(nextLoaded);
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -991,54 +661,18 @@ _`,
 
     const refreshFromWallet = () => refreshLiveState({ speak: false });
 
-    if (window.ethereum) {
-      window.ethereum.on?.("accountsChanged", refreshFromWallet);
-      window.ethereum.on?.("chainChanged", refreshFromWallet);
-    }
-
+    window.ethereum?.on?.("accountsChanged", refreshFromWallet);
+    window.ethereum?.on?.("chainChanged", refreshFromWallet);
     window.addEventListener("focus", refreshFromWallet);
+
     refreshFromWallet();
 
     return () => {
-      if (window.ethereum) {
-        window.ethereum.removeListener?.("accountsChanged", refreshFromWallet);
-        window.ethereum.removeListener?.("chainChanged", refreshFromWallet);
-      }
+      window.ethereum?.removeListener?.("accountsChanged", refreshFromWallet);
+      window.ethereum?.removeListener?.("chainChanged", refreshFromWallet);
       window.removeEventListener("focus", refreshFromWallet);
     };
   }, []);
-
-  useEffect(() => {
-    if (!landingMode) return;
-
-    const resetOnBack = () => {
-      updateVisitorSession({ returnedFromDapp: true });
-      setPendingGridEntry(false);
-      setVisitorKnowledgeMode(false);
-      setThinking(false);
-      setIsTyping(false);
-      stopTyping(typingRef);
-      clearReturnMenuTimer();
-
-      transmit(
-        `SIGNAL RESTORED.
-
-If acquisition completed,
-connect wallet and observe state.
-
-If not,
-the path remains open.
-
-_`,
-        30,
-        () => showVisitorGridPrompt(),
-        "system"
-      );
-    };
-
-    window.addEventListener("pageshow", resetOnBack);
-    return () => window.removeEventListener("pageshow", resetOnBack);
-  }, [landingMode]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1051,9 +685,7 @@ _`,
   useEffect(() => {
     refreshLiveState();
 
-    liveRef.current = setInterval(() => {
-      refreshLiveState();
-    }, 60000);
+    liveRef.current = setInterval(refreshLiveState, 60000);
 
     return () => {
       if (liveRef.current) clearInterval(liveRef.current);
@@ -1099,29 +731,11 @@ _`,
 
     setTimeout(() => {
       if (isVisitorFlow()) {
-        handleLandingMessage(clean);
+        handleVisitorMessage(clean);
         return;
       }
 
-      const handled = handleCoherentMessage(clean);
-      if (handled) return;
-
-      const personalEcho = getPersonalEchoResponse(clean);
-      let answer = personalEcho || getQoriResponse(clean, ctx);
-      const tone = personalEcho ? "echo" : "system";
-
-      if (!personalEcho) answer = maybeAddSignalDegradation(answer);
-
-      transmit(
-        answer + "\n\n_",
-        30,
-        () => {
-          setThinking(false);
-          scheduleReturnToCoherentMenu(10000);
-          setTimeout(() => inputRef.current?.focus(), 50);
-        },
-        tone
-      );
+      handleCoherentMessage(clean);
     }, 1500);
   }
 
@@ -1167,9 +781,7 @@ _`,
               walletPromptGlow || hovered
                 ? visuals.color
                 : "rgba(47,212,255,0.08)",
-            boxShadow: walletPromptGlow
-              ? `${visuals.shadow}, 0 0 28px ${visuals.color}, 0 0 58px ${visuals.color}`
-              : isVisitorFlow()
+            boxShadow: isVisitorFlow()
               ? "0 0 12px rgba(30,200,255,0.75)"
               : visuals.shadow,
             transform: `scale(${pulse})`,
@@ -1181,90 +793,27 @@ _`,
       )}
 
       {open && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            background: "rgba(0, 6, 14, 0.78)",
-            backdropFilter: "blur(7px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10000,
-            padding: 18,
-          }}
-        >
-          <div
-            style={{
-              position: "relative",
-              width: 430,
-              maxWidth: "92vw",
-              height: 620,
-              maxHeight: "90vh",
-              overflow: "hidden",
-              background: "rgba(2, 10, 20, 0.97)",
-              border:
-                ctx.guardianState === "FRACTURED"
-                  ? "1px solid rgba(255,80,80,0.55)"
-                  : ctx.guardianState === "COHERENT"
-                  ? "1px solid rgba(0,255,198,0.55)"
-                  : "1px solid rgba(45,170,255,0.55)",
-              borderRadius: 24,
-              boxShadow:
-                ctx.guardianState === "FRACTURED"
-                  ? "0 0 35px rgba(255,80,80,0.22), inset 0 0 20px rgba(255,80,80,0.08)"
-                  : ctx.guardianState === "COHERENT"
-                  ? "0 0 35px rgba(0,255,198,0.22), inset 0 0 20px rgba(0,255,198,0.08)"
-                  : "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)",
-              padding: 28,
-              color: "#e8f6ff",
-              fontFamily: "monospace",
-            }}
-          >
+        <div style={overlayStyle}>
+          <div style={panelStyle(ctx)}>
             <button onClick={() => setOpen(false)} style={closeStyle}>
               ×
             </button>
 
-            <div
-              style={{
-                fontSize: 34,
-                color:
-                  ctx.guardianState === "FRACTURED"
-                    ? "#ff7070"
-                    : ctx.guardianState === "COHERENT"
-                    ? "#00ffc6"
-                    : "#1ec8ff",
-                letterSpacing: 8,
-                textShadow: "0 0 14px rgba(30,200,255,0.75)",
-              }}
-            >
-              Q.O.R.I
-            </div>
+            <div style={titleStyle(ctx)}>Q.O.R.I</div>
 
-            <div
-              style={{
-                marginTop: 8,
-                marginBottom: 10,
-                fontSize: 11,
-                letterSpacing: 4,
-                opacity: 0.85,
-              }}
-            >
+            <div style={subTitleStyle}>
               {landingMode ? "VISITOR INTERFACE" : "GUARDIAN INTERFACE"}
             </div>
 
             <div
               style={{
-                marginBottom: 14,
-                fontSize: 11,
-                letterSpacing: 3,
+                ...stateStyle,
                 color:
                   displayTone === "echo"
                     ? "#ffcf6b"
                     : isVisitorFlow()
                     ? "#1ec8ff"
                     : visuals.color,
-                opacity: 0.9,
               }}
             >
               STATE: {ctx.guardianState || "UNKNOWN"} · ERA:{" "}
@@ -1297,14 +846,7 @@ _`,
               {displayText}
             </div>
 
-            <div
-              style={{
-                marginTop: 22,
-                fontSize: 13,
-                letterSpacing: 3,
-                fontWeight: 700,
-              }}
-            >
+            <div style={statusStyle}>
               {isTyping
                 ? "Q.O.R.I IS TRANSMITTING"
                 : silent
@@ -1334,25 +876,12 @@ _`,
               }}
             />
 
-            <div
-              style={{
-                marginTop: 22,
-                display: "flex",
-                alignItems: "center",
-                border: "1px solid rgba(45,170,255,0.4)",
-                borderRadius: 14,
-                overflow: "hidden",
-                background: "rgba(0,18,40,0.7)",
-                opacity: isTyping ? 0.58 : 1,
-              }}
-            >
+            <div style={inputWrapStyle}>
               <input
                 ref={inputRef}
                 value={input}
                 disabled={thinking || isTyping}
-                onFocus={() => {
-                  resetSilentTimer();
-                }}
+                onFocus={resetSilentTimer}
                 onChange={(e) => {
                   const nextValue = e.target.value;
                   resetSilentTimer();
@@ -1365,36 +894,17 @@ _`,
                 placeholder={
                   thinking || isTyping
                     ? "Q.O.R.I transmitting..."
-                    : isVisitorFlow() && !visitorKnowledgeMode
-                    ? "Type 1 or 2..."
+                    : isVisitorFlow()
+                    ? "Ask Q.O.R.I or type 1-8..."
                     : "Ask Q.O.R.I..."
                 }
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  padding: "16px 14px",
-                  color: "#fff",
-                  fontSize: 15,
-                  fontFamily: "monospace",
-                  opacity: thinking || isTyping ? 0.65 : 1,
-                }}
+                style={inputStyle}
               />
 
               <button
                 onClick={sendMessage}
                 disabled={thinking || isTyping}
-                style={{
-                  width: 54,
-                  height: 52,
-                  border: "none",
-                  background: "rgba(0,120,255,0.18)",
-                  color: "#39d7ff",
-                  fontSize: 24,
-                  cursor: thinking || isTyping ? "not-allowed" : "pointer",
-                  opacity: thinking || isTyping ? 0.55 : 1,
-                }}
+                style={sendStyle(thinking || isTyping)}
               >
                 ↗
               </button>
@@ -1404,6 +914,116 @@ _`,
       )}
     </>
   );
+}
+
+const overlayStyle = {
+  position: "fixed",
+  inset: 0,
+  background: "rgba(0, 6, 14, 0.78)",
+  backdropFilter: "blur(7px)",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  zIndex: 10000,
+  padding: 18,
+};
+
+function panelStyle(ctx) {
+  return {
+    position: "relative",
+    width: 430,
+    maxWidth: "92vw",
+    height: 620,
+    maxHeight: "90vh",
+    overflow: "hidden",
+    background: "rgba(2, 10, 20, 0.97)",
+    border:
+      ctx.guardianState === "FRACTURED"
+        ? "1px solid rgba(255,80,80,0.55)"
+        : ctx.guardianState === "COHERENT"
+        ? "1px solid rgba(0,255,198,0.55)"
+        : "1px solid rgba(45,170,255,0.55)",
+    borderRadius: 24,
+    boxShadow:
+      ctx.guardianState === "FRACTURED"
+        ? "0 0 35px rgba(255,80,80,0.22), inset 0 0 20px rgba(255,80,80,0.08)"
+        : ctx.guardianState === "COHERENT"
+        ? "0 0 35px rgba(0,255,198,0.22), inset 0 0 20px rgba(0,255,198,0.08)"
+        : "0 0 35px rgba(0,140,255,0.25), inset 0 0 20px rgba(0,140,255,0.08)",
+    padding: 28,
+    color: "#e8f6ff",
+    fontFamily: "monospace",
+  };
+}
+
+function titleStyle(ctx) {
+  return {
+    fontSize: 34,
+    color:
+      ctx.guardianState === "FRACTURED"
+        ? "#ff7070"
+        : ctx.guardianState === "COHERENT"
+        ? "#00ffc6"
+        : "#1ec8ff",
+    letterSpacing: 8,
+    textShadow: "0 0 14px rgba(30,200,255,0.75)",
+  };
+}
+
+const subTitleStyle = {
+  marginTop: 8,
+  marginBottom: 10,
+  fontSize: 11,
+  letterSpacing: 4,
+  opacity: 0.85,
+};
+
+const stateStyle = {
+  marginBottom: 14,
+  fontSize: 11,
+  letterSpacing: 3,
+  opacity: 0.9,
+};
+
+const statusStyle = {
+  marginTop: 22,
+  fontSize: 13,
+  letterSpacing: 3,
+  fontWeight: 700,
+};
+
+const inputWrapStyle = {
+  marginTop: 22,
+  display: "flex",
+  alignItems: "center",
+  border: "1px solid rgba(45,170,255,0.4)",
+  borderRadius: 14,
+  overflow: "hidden",
+  background: "rgba(0,18,40,0.7)",
+};
+
+const inputStyle = {
+  flex: 1,
+  background: "transparent",
+  border: "none",
+  outline: "none",
+  padding: "16px 14px",
+  color: "#fff",
+  fontSize: 15,
+  fontFamily: "monospace",
+};
+
+function sendStyle(disabled) {
+  return {
+    width: 54,
+    height: 52,
+    border: "none",
+    background: "rgba(0,120,255,0.18)",
+    color: "#39d7ff",
+    fontSize: 24,
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.55 : 1,
+  };
 }
 
 const closeStyle = {
