@@ -135,6 +135,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const inputRef = useRef(null);
   const messageBoxRef = useRef(null);
   const returnMenuRef = useRef(null);
+  const screenRef = useRef("boot");
   const previousWalletConnectedRef = useRef(false);
 
   function isVisitorFlow() {
@@ -209,6 +210,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearReturnMenuTimer();
 
     returnMenuRef.current = setTimeout(() => {
+      if (screenRef.current === "menu") return;
+
       if (userIsTypingOrHoldingText()) {
         scheduleReturnToVisitorMenu(10000);
         return;
@@ -673,6 +676,26 @@ _`,
       window.removeEventListener("focus", refreshFromWallet);
     };
   }, []);
+
+  useEffect(() => {
+    if (!landingMode) return;
+
+    const restoreVisitor = () => {
+      clearReturnMenuTimer();
+      setThinking(false);
+      setIsTyping(false);
+      stopTyping(typingRef);
+      showKnowledgeMenu();
+    };
+
+    window.addEventListener("pageshow", restoreVisitor);
+    window.addEventListener("focus", restoreVisitor);
+
+    return () => {
+      window.removeEventListener("pageshow", restoreVisitor);
+      window.removeEventListener("focus", restoreVisitor);
+    };
+  }, [landingMode]);
 
   useEffect(() => {
     const interval = setInterval(() => {
