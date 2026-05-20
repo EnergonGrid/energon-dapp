@@ -88,6 +88,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const [hovered, setHovered] = useState(false);
   const [landingMode, setLandingMode] = useState(false);
   const [walletPromptGlow, setWalletPromptGlow] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
@@ -539,7 +540,12 @@ It advances when conditions are met.`
 
               if (nextCtx.guardianState === "COHERENT") {
                 screenRef.current = "menu";
-                transmit(coherentMenuWithPrompt() + "\n\n_", 30, undefined, "system");
+                transmit(
+                  coherentMenuWithPrompt() + "\n\n_",
+                  30,
+                  undefined,
+                  "system"
+                );
                 return;
               }
 
@@ -585,6 +591,22 @@ _`,
       }
     }
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+
+    checkMobile();
+
+    window.addEventListener("resize", checkMobile);
+
+    return () => {
+      window.removeEventListener("resize", checkMobile);
+    };
+  }, []);
 
   useEffect(() => {
     if (landingMode) return;
@@ -762,6 +784,12 @@ _`,
       {open && (
         <div style={overlayStyle}>
           <div style={panelStyle(ctx)}>
+            {isMobile && (
+              <button onClick={() => setOpen(false)} style={mobileCloseStyle}>
+                ×
+              </button>
+            )}
+
             <div style={titleStyle(ctx)}>Q.O.R.I</div>
 
             <div style={subTitleStyle}>
@@ -979,3 +1007,15 @@ function sendStyle(disabled) {
     opacity: disabled ? 0.55 : 1,
   };
 }
+
+const mobileCloseStyle = {
+  position: "absolute",
+  top: 12,
+  right: 14,
+  background: "transparent",
+  border: "none",
+  color: "#fff",
+  fontSize: 34,
+  cursor: "pointer",
+  zIndex: 10002,
+};
