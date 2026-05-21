@@ -535,47 +535,45 @@ It advances when conditions are met.`
           getSystemObservation(nextCtx) + "\n\n_",
           32,
           () => {
-            setTimeout(() => {
-              if (userIsTypingOrHoldingText()) return;
-
-              if (nextCtx.guardianState === "COHERENT") {
-                screenRef.current = "menu";
-                transmit(
-                  coherentMenuWithPrompt() + "\n\n_",
-                  30,
-                  undefined,
-                  "system"
-                );
-                return;
-              }
-
-              if (nextCtx.guardianState === "NO KEY") {
-                showVisitorMenu();
-                return;
-              }
-
-              if (nextCtx.guardianState === "FRACTURED") {
-                transmit(
-                  `FRACTURED STATE DETECTED.
-
-This wallet holds more than one EnergonCube.
-
-Guardian coherence requires:
-
-One wallet.
-One cube.
-One Guardian.
-
-Reduce cube balance to exactly one
-to restore coherent access.
-
-_`,
-                  30,
-                  undefined,
-                  "system"
-                );
-              }
-            }, 10000);
+            setThinking(false);
+      
+            if (nextCtx.guardianState === "COHERENT") {
+              screenRef.current = "answer";
+              scheduleReturnToCoherentMenu(10000);
+              return;
+            }
+      
+            if (nextCtx.guardianState === "NO KEY") {
+              screenRef.current = "answer";
+              scheduleReturnToVisitorMenu(10000);
+              return;
+            }
+      
+            if (nextCtx.guardianState === "FRACTURED") {
+              screenRef.current = "answer";
+      
+              transmit(
+                `FRACTURED STATE DETECTED.
+      
+      This wallet holds more than one EnergonCube.
+      
+      Guardian coherence requires:
+      
+      One wallet.
+      One cube.
+      One Guardian.
+      
+      Reduce cube balance to exactly one
+      to restore coherent access.
+      
+      _`,
+                30,
+                () => {
+                  setThinking(false);
+                },
+                "system"
+              );
+            }
           },
           "system"
         );

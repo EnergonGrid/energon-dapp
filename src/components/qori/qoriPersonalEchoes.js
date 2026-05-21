@@ -145,7 +145,7 @@ export function getCoherentEchoResponse(input = "") {
   const found = COHERENT_ECHOES.find((item) => includesAny(q, item.match));
 
   if (!found) return "";
-  if (Math.random() > 0.3) return "";
+  if (Math.random() > 0.2) return "";
 
   return found.response;
 }
