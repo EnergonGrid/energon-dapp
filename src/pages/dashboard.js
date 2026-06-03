@@ -123,26 +123,22 @@ export default function Dashboard() {
   const [isMobile, setIsMobile] = useState(false);
   const [isSmallPhone, setIsSmallPhone] = useState(false);
 
-  // hidden but still useful
   const [totalMinted, setTotalMinted] = useState("-");
 
   const [cubeBal, setCubeBal] = useState("-");
   const [eligibleText, setEligibleText] = useState("-");
   const [eonBal, setEonBal] = useState("-");
 
-  // Controller-driven stats
   const [controllerAddr, setControllerAddr] = useState("-");
   const [energonHeight, setEnergonHeight] = useState("-");
   const [secondsUntilNext, setSecondsUntilNext] = useState("-");
   const [tickAllowed, setTickAllowed] = useState(false);
 
-  // Protocol clock values
   const [launchTime, setLaunchTime] = useState(0);
   const [lastHalvingTime, setLastHalvingTime] = useState(0);
   const [halvingInterval, setHalvingInterval] = useState(0);
   const [nowSec, setNowSec] = useState(() => Math.floor(Date.now() / 1000));
 
-  // Burn progress
   const [burnPoolRemaining, setBurnPoolRemaining] = useState("-");
   const [totalBurned, setTotalBurned] = useState("-");
   const [burnProgressBar, setBurnProgressBar] = useState("░░░░░░░░░░░░░░░░░░░░");
@@ -150,24 +146,20 @@ export default function Dashboard() {
   const [burnProgressPctValue, setBurnProgressPctValue] = useState(0);
   const [burnBlinkCount, setBurnBlinkCount] = useState(0);
 
-  // Tick UX
   const [autoTickOn, setAutoTickOn] = useState(false);
   const [isTicking, setIsTicking] = useState(false);
   const [cooldownLeft, setCooldownLeft] = useState(0);
   const [lastTickTx, setLastTickTx] = useState("");
 
-  // Auto-tick backoff
   const [backoffMs, setBackoffMs] = useState(0);
   const backoffRef = useRef(0);
 
-  // one tick per height
   const lastTickHeightRef = useRef(null);
-
-  // latest connected wallet
   const accountRef = useRef("");
-
-  // previous burn amount for blink trigger
   const prevBurnedRef = useRef(null);
+
+  // ✅ Prevent overlapping dashboard reads
+  const refreshInFlightRef = useRef(false);
 
   useEffect(() => {
     function handleResize() {
@@ -493,6 +485,9 @@ export default function Dashboard() {
   }
 
   async function refreshRead(optionalProvider = null, optionalAccount = null) {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+
     try {
       const providerToUse = optionalProvider || getRoProvider();
       if (!providerToUse) return;
@@ -502,15 +497,16 @@ export default function Dashboard() {
       try {
         const tm = await cube.totalMinted();
         setTotalMinted(tm.toString());
-      } catch {
-        setTotalMinted("-");
+      } catch (e) {
+        console.warn("totalMinted read failed; keeping last value", e);
       }
 
       let ctrl = null;
       try {
         ctrl = await cube.controller();
         setControllerAddr(ctrl);
-      } catch {
+      } catch (e) {
+        console.warn("controller read failed; using locked fallback", e);
         ctrl = CONTROLLER_ADDRESS_LOCKED;
         setControllerAddr(ctrl);
       }
@@ -525,8 +521,8 @@ export default function Dashboard() {
         try {
           const h = await controller.energonHeight();
           setEnergonHeight(h.toString());
-        } catch {
-          setEnergonHeight("-");
+        } catch (e) {
+          console.warn("energonHeight read failed; keeping last value", e);
         }
 
         try {
@@ -534,30 +530,29 @@ export default function Dashboard() {
           const sec = Number(s.toString());
           setSecondsUntilNext(String(sec));
           setTickAllowed(sec === 0);
-        } catch {
-          setSecondsUntilNext("-");
-          setTickAllowed(false);
+        } catch (e) {
+          console.warn("secondsUntilNext read failed; keeping last value", e);
         }
 
         try {
           const lt = await controller.launchTime();
           setLaunchTime(Number(lt.toString()));
-        } catch {
-          setLaunchTime(0);
+        } catch (e) {
+          console.warn("launchTime read failed; keeping last value", e);
         }
 
         try {
           const lht = await controller.lastHalvingTime();
           setLastHalvingTime(Number(lht.toString()));
-        } catch {
-          setLastHalvingTime(0);
+        } catch (e) {
+          console.warn("lastHalvingTime read failed; keeping last value", e);
         }
 
         try {
           const hi = await controller.halvingInterval();
           setHalvingInterval(Number(hi.toString()));
-        } catch {
-          setHalvingInterval(0);
+        } catch (e) {
+          console.warn("halvingInterval read failed; keeping last value", e);
         }
 
         try {
@@ -589,25 +584,11 @@ export default function Dashboard() {
           }
 
           prevBurnedRef.current = burnedBig;
-        } catch {
-          setBurnPoolRemaining("-");
-          setTotalBurned("-");
-          setBurnProgressBar("░░░░░░░░░░░░░░░░░░░░");
-          setBurnProgressPct("0.00%");
-          setBurnProgressPctValue(0);
+        } catch (e) {
+          console.warn("burnPoolRemaining read failed; keeping last value", e);
         }
       } else {
-        setEnergonHeight("-");
-        setSecondsUntilNext("-");
-        setTickAllowed(false);
-        setLaunchTime(0);
-        setLastHalvingTime(0);
-        setHalvingInterval(0);
-        setBurnPoolRemaining("-");
-        setTotalBurned("-");
-        setBurnProgressBar("░░░░░░░░░░░░░░░░░░░░");
-        setBurnProgressPct("0.00%");
-        setBurnProgressPctValue(0);
+        console.warn("Controller unavailable; keeping last known protocol values");
       }
 
       const acct = optionalAccount || accountRef.current || account;
@@ -619,13 +600,17 @@ export default function Dashboard() {
           setCubeBal(String(n));
           if (n === 1) setEligibleText("Eligible ✅");
           else setEligibleText(`Not eligible ❌ (${n} Cubes)`);
-        } catch {}
+        } catch (e) {
+          console.warn("cube balance read failed; keeping last value", e);
+        }
 
         try {
           const eon = new ethers.Contract(EON_ADDRESS, ERC20_ABI, providerToUse);
           const raw = await eon.balanceOf(acct);
           setEonBal(`${ethers.formatUnits(raw, 18)} EON`);
-        } catch {}
+        } catch (e) {
+          console.warn("EON balance read failed; keeping last value", e);
+        }
       } else {
         setCubeBal("-");
         setEligibleText("-");
@@ -633,13 +618,20 @@ export default function Dashboard() {
       }
 
       if (window.ethereum) {
-        const bp =
-          optionalProvider || new ethers.BrowserProvider(window.ethereum);
-        const n = await bp.getNetwork();
-        setChainId(Number(n.chainId));
+        try {
+          const bp =
+            optionalProvider || new ethers.BrowserProvider(window.ethereum);
+          const n = await bp.getNetwork();
+          setChainId(Number(n.chainId));
+        } catch (e) {
+          console.warn("wallet network read failed; keeping last chain value", e);
+        }
       }
     } catch (e) {
-      setStatus(e?.message || "Unable to read contract");
+      console.warn("Dashboard refresh failed; keeping last known values", e);
+      setStatus("Read delayed. Keeping last known values.");
+    } finally {
+      refreshInFlightRef.current = false;
     }
   }
 
@@ -785,7 +777,7 @@ export default function Dashboard() {
 
     const t = setInterval(() => {
       refreshRead(null, accountRef.current);
-    }, 3000);
+    }, 10000);
 
     return () => clearInterval(t);
   }, []);
