@@ -31,7 +31,6 @@ export default function Mint() {
   const [copied, setCopied] = useState(false);
 
   const [ownedCubeCount, setOwnedCubeCount] = useState(0);
-
   const [viewportWidth, setViewportWidth] = useState(1280);
 
   const RO_RPC =
@@ -44,7 +43,10 @@ export default function Mint() {
   }, [RO_RPC]);
 
   const chainOk = Number(chainId) === MAINNET_CHAIN_ID;
-  const hasCube = ownedCubeCount > 0;
+
+  const isSilent = ownedCubeCount === 0;
+  const isCoherent = ownedCubeCount === 1;
+  const isFractured = ownedCubeCount > 1;
 
   const isTablet = viewportWidth <= 980;
   const isMobile = viewportWidth <= 768;
@@ -58,12 +60,27 @@ export default function Mint() {
     setStatusTone(tone);
   }
 
+  function guardianStateText() {
+    if (!account) return "DISCONNECTED";
+    if (isSilent) return "SILENT";
+    if (isCoherent) return "COHERENT";
+    return "FRACTURED";
+  }
+
+  function guardianStateMessage() {
+    if (!account) return "Connect wallet to read Guardian state.";
+    if (isSilent) return "SILENT — no EnergonCube detected.";
+    if (isCoherent) return "COHERENT — exactly one EnergonCube detected.";
+    return "FRACTURED — more than one EnergonCube detected.";
+  }
+
   function Tile({ label, value, icon = null, right = null, valueStyle = null }) {
     return (
       <div
         style={{
           ...styles.tile,
           ...(isMobile ? styles.tileMobile : null),
+          ...(isFractured ? styles.tileFractured : null),
         }}
       >
         <div style={styles.tileLabel}>{label}</div>
@@ -74,7 +91,9 @@ export default function Mint() {
           }}
         >
           {icon ? <div style={styles.tileIconWrap}>{icon}</div> : null}
-          <div style={{ ...styles.tileValue, ...(valueStyle || {}) }}>{value}</div>
+          <div style={{ ...styles.tileValue, ...(valueStyle || {}) }}>
+            {value}
+          </div>
           {right ? <div style={styles.tileRight}>{right}</div> : null}
         </div>
       </div>
@@ -93,9 +112,7 @@ export default function Mint() {
       const currentChainId = Number(net.chainId);
       setChainId(currentChainId);
 
-      if (currentChainId === MAINNET_CHAIN_ID) {
-        return true;
-      }
+      if (currentChainId === MAINNET_CHAIN_ID) return true;
 
       updateStatus(`Switching to ${NETWORK_NAME}…`, "warning");
 
@@ -165,14 +182,7 @@ export default function Mint() {
       const addr = accounts?.[0] || "";
 
       setAccount(addr);
-
       await refreshRead(browserProvider, addr);
-
-      if (addr) {
-        updateStatus("Connected ✅ Ready to mint", "success");
-      } else {
-        updateStatus("Not connected", "danger");
-      }
     } catch (e) {
       updateStatus(e?.message || "Connect failed", "danger");
     }
@@ -221,10 +231,12 @@ export default function Mint() {
           const count = Number(bal.toString());
           setOwnedCubeCount(count);
 
-          if (count > 0) {
-            updateStatus("Wallet already holds an Energon Cube", "success");
-          } else if (chainOk) {
-            updateStatus("Connected ✅ Ready to mint", "success");
+          if (count === 0) {
+            updateStatus("SILENT — no EnergonCube detected", "info");
+          } else if (count === 1) {
+            updateStatus("COHERENT ✅ exactly one EnergonCube detected", "success");
+          } else {
+            updateStatus("FRACTURED — more than one EnergonCube detected", "warning");
           }
         } catch {
           setOwnedCubeCount(0);
@@ -234,8 +246,7 @@ export default function Mint() {
       }
 
       if (window.ethereum) {
-        const bp =
-          optionalProvider || new ethers.BrowserProvider(window.ethereum);
+        const bp = optionalProvider || new ethers.BrowserProvider(window.ethereum);
         const n = await bp.getNetwork();
         setChainId(Number(n.chainId));
       }
@@ -246,32 +257,26 @@ export default function Mint() {
   }
 
   async function mintNow() {
-    if (!window.ethereum) {
-      updateStatus("MetaMask not found", "danger");
-      return;
-    }
-    if (!account) {
-      updateStatus("Connect wallet first", "danger");
-      return;
-    }
+    if (!window.ethereum) return updateStatus("MetaMask not found", "danger");
+    if (!account) return updateStatus("Connect wallet first", "danger");
     if (!chainOk) {
       updateStatus(`Wrong network. Switch to ${NETWORK_NAME}.`, "warning");
       return;
     }
-    if (hasCube) {
-      updateStatus("This wallet already holds an Energon Cube", "success");
-      return;
-    }
-    if (!priceWei) {
-      updateStatus("Price not loaded yet", "warning");
-      return;
-    }
+    if (!priceWei) return updateStatus("Price not loaded yet", "warning");
 
-    const q = 1;
+    const q = Math.max(1, Math.floor(Number(qty || 1)));
 
     try {
       setIsMinting(true);
-      updateStatus("Preparing mint…", "info");
+
+      if (isCoherent) {
+        updateStatus("Minting another cube will fracture this wallet.", "warning");
+      } else if (isFractured) {
+        updateStatus("Wallet is already fractured. Minting remains available.", "warning");
+      } else {
+        updateStatus("Preparing mint…", "info");
+      }
 
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
@@ -290,7 +295,7 @@ export default function Mint() {
       await tx.wait();
 
       await refreshRead(browserProvider, account);
-      updateStatus("Mint confirmed ✅ Energon Cube minted", "success");
+      updateStatus("Mint confirmed ✅ EnergonCube minted", "success");
     } catch (e) {
       updateStatus(e?.shortMessage || e?.message || "Mint failed", "danger");
     } finally {
@@ -299,8 +304,8 @@ export default function Mint() {
     }
   }
 
-  function adjustQty() {
-    setQty(1);
+  function adjustQty(delta) {
+    setQty((v) => Math.max(1, Math.floor(Number(v || 1)) + delta));
   }
 
   async function copyContract() {
@@ -341,11 +346,7 @@ export default function Mint() {
 
         await refreshRead(browserProvider, account);
 
-        if (nextChainId === MAINNET_CHAIN_ID) {
-          if (account) {
-            updateStatus("Connected ✅ On Flare Mainnet", "success");
-          }
-        } else {
+        if (nextChainId !== MAINNET_CHAIN_ID) {
           updateStatus(`Wrong network. Switch to ${NETWORK_NAME}.`, "warning");
         }
       } catch (e) {
@@ -383,29 +384,31 @@ export default function Mint() {
     ? styles.mintActionBtnDisconnected
     : !chainOk
     ? styles.mintActionBtnWarn
-    : hasCube
-    ? styles.mintActionBtnOwned
+    : isFractured
+    ? styles.mintActionBtnFractured
+    : isCoherent
+    ? styles.mintActionBtnWarn
     : styles.mintActionBtnConnected;
 
   const actionButtonText = !account
     ? "Connect Wallet"
     : !chainOk
     ? `Switch to ${NETWORK_NAME}`
-    : hasCube
-    ? "Already Minted"
     : isMinting
     ? "Minting…"
+    : isFractured
+    ? "Mint While Fractured"
+    : isCoherent
+    ? "Mint Another Cube"
     : "Mint NFT";
 
   const actionButtonClick = !account
     ? connectWallet
     : !chainOk
     ? switchToMainnet
-    : hasCube
-    ? () => updateStatus("This wallet already holds an Energon Cube", "success")
     : mintNow;
 
-  const actionButtonDisabled = isMinting || hasCube;
+  const actionButtonDisabled = isMinting;
 
   const statusToneStyle =
     statusTone === "success"
@@ -430,6 +433,7 @@ export default function Mint() {
       style={{
         ...styles.page,
         ...(isMobile ? styles.pageMobile : null),
+        ...(isFractured ? styles.pageFractured : null),
       }}
     >
       {!isMobile ? <div style={styles.bgGlowA} /> : null}
@@ -456,10 +460,15 @@ export default function Mint() {
               ...(isTablet ? styles.h1Tablet : null),
               ...(isMobile ? styles.h1Mobile : null),
               ...(isSmallMobile ? styles.h1SmallMobile : null),
+              ...(isFractured ? styles.h1Fractured : null),
             }}
           >
             MINT · ENERGON CUBE
           </h1>
+
+          <div style={styles.statePill}>
+            STATE: {guardianStateText()} · CUBES: {account ? ownedCubeCount : "—"}
+          </div>
 
           <div
             style={{
@@ -468,12 +477,7 @@ export default function Mint() {
             }}
           >
             {!isMobile ? <div style={styles.subheadWing} /> : null}
-            <div
-              style={{
-                ...styles.sub,
-                ...(isMobile ? styles.subMobile : null),
-              }}
-            >
+            <div style={{ ...styles.sub, ...(isMobile ? styles.subMobile : null) }}>
               Fixed Supply · Public Access Active
             </div>
             {!isMobile ? <div style={styles.subheadWing} /> : null}
@@ -487,11 +491,7 @@ export default function Mint() {
             ...(isMobile ? styles.statsGridMobile : null),
           }}
         >
-          <Tile
-            label="TOTAL MINTED"
-            value={totalMinted}
-            valueStyle={styles.bigCenteredValue}
-          />
+          <Tile label="TOTAL MINTED" value={totalMinted} valueStyle={styles.bigCenteredValue} />
 
           <Tile
             label="ENTRY (PER CUBE)"
@@ -531,15 +531,17 @@ export default function Mint() {
             style={{
               ...styles.mintCard,
               ...(isMobile ? styles.mintCardMobile : null),
+              ...(isFractured ? styles.mintCardFractured : null),
             }}
           >
             <div
               style={{
                 ...styles.mintCardTitle,
                 ...(isMobile ? styles.mintCardTitleMobile : null),
+                ...(isFractured ? styles.fracturedText : null),
               }}
             >
-              ACQUIRE 1 ENERGON CUBE
+              ACQUIRE ENERGON CUBE
             </div>
 
             <div
@@ -548,8 +550,22 @@ export default function Mint() {
                 ...(isMobile ? styles.mintCardSubMobile : null),
               }}
             >
-              1 Cube per wallet · Quantity enforced by protocol
+              0 Cubes = SILENT · 1 Cube = COHERENT · 2+ Cubes = FRACTURED
             </div>
+
+            <div style={styles.guardianMessage}>{guardianStateMessage()}</div>
+
+            {isCoherent ? (
+              <div style={styles.warningBox}>
+                Minting another cube will change this wallet from COHERENT to FRACTURED.
+              </div>
+            ) : null}
+
+            {isFractured ? (
+              <div style={styles.fracturedBox}>
+                FRACTURED STATE DETECTED. This wallet holds more than one EnergonCube.
+              </div>
+            ) : null}
 
             <div
               style={{
@@ -569,15 +585,17 @@ export default function Mint() {
                 <div
                   style={{
                     ...styles.stepper,
-                    ...styles.stepperDisabled,
                     ...(isMobile ? styles.stepperMobile : null),
                   }}
                 >
                   <button
                     type="button"
-                    style={{ ...styles.stepperBtn, ...styles.stepperBtnDisabled }}
-                    onClick={adjustQty}
-                    disabled
+                    style={{
+                      ...styles.stepperBtn,
+                      ...(isMinting ? styles.stepperBtnDisabled : null),
+                    }}
+                    onClick={() => adjustQty(-1)}
+                    disabled={isMinting}
                   >
                     –
                   </button>
@@ -585,22 +603,25 @@ export default function Mint() {
                   <input
                     style={{
                       ...styles.qtyInput,
-                      ...styles.qtyInputDisabled,
                       ...(isMobile ? styles.qtyInputMobile : null),
                     }}
                     type="number"
                     min="1"
-                    max="1"
                     value={qty}
-                    readOnly
-                    disabled
+                    disabled={isMinting}
+                    onChange={(e) =>
+                      setQty(Math.max(1, Math.floor(Number(e.target.value || 1))))
+                    }
                   />
 
                   <button
                     type="button"
-                    style={{ ...styles.stepperBtn, ...styles.stepperBtnDisabled }}
-                    onClick={adjustQty}
-                    disabled
+                    style={{
+                      ...styles.stepperBtn,
+                      ...(isMinting ? styles.stepperBtnDisabled : null),
+                    }}
+                    onClick={() => adjustQty(1)}
+                    disabled={isMinting}
                   >
                     +
                   </button>
@@ -678,6 +699,7 @@ export default function Mint() {
               ...styles.cubeCard,
               ...(isTablet ? styles.cubeCardTablet : null),
               ...(isMobile ? styles.cubeCardMobile : null),
+              ...(isFractured ? styles.cubeCardFractured : null),
             }}
           >
             <img
@@ -686,6 +708,7 @@ export default function Mint() {
               style={{
                 ...styles.cubeImage,
                 ...(isMobile ? styles.cubeImageMobile : null),
+                ...(isFractured ? styles.cubeImageFractured : null),
               }}
             />
           </div>
@@ -695,10 +718,11 @@ export default function Mint() {
           style={{
             ...styles.bottomStrip,
             ...(isMobile ? styles.bottomStripMobile : null),
+            ...(isFractured ? styles.bottomStripFractured : null),
           }}
         >
           <span style={styles.bottomStripIcon}>◉</span>
-          <span>1 Energon Cube per wallet = Eligibility enforced by smart contract</span>
+          <span>{guardianStateMessage()}</span>
         </div>
       </div>
     </div>
@@ -719,6 +743,11 @@ const styles = {
 
   pageMobile: {
     background: "#000000",
+  },
+
+  pageFractured: {
+    background:
+      "radial-gradient(circle at 50% 14%, rgba(160,38,38,0.16) 0%, rgba(24,5,8,0.50) 28%, #000000 68%, #000000 100%)",
   },
 
   bgGlowA: {
@@ -835,6 +864,11 @@ const styles = {
       "0 0 8px rgba(255,255,255,0.04), 0 0 18px rgba(120,180,255,0.06)",
   },
 
+  h1Fractured: {
+    color: "#ffd0d0",
+    textShadow: "2px 0 rgba(255,40,40,0.45), -2px 0 rgba(60,150,255,0.25)",
+  },
+
   h1Tablet: {
     fontSize: 36,
   },
@@ -847,6 +881,18 @@ const styles = {
 
   h1SmallMobile: {
     fontSize: 24,
+  },
+
+  statePill: {
+    display: "inline-block",
+    marginTop: 12,
+    padding: "8px 14px",
+    borderRadius: 999,
+    border: "1px solid rgba(120,180,255,0.22)",
+    background: "rgba(6,14,34,0.72)",
+    color: "rgba(234,241,255,0.90)",
+    fontSize: 12,
+    letterSpacing: 1.4,
   },
 
   subheadLineWrap: {
@@ -912,6 +958,12 @@ const styles = {
       "0 14px 28px rgba(0,0,0,0.24), inset 0 0 0 1px rgba(255,255,255,0.015), 0 0 16px rgba(60,130,255,0.05)",
     backdropFilter: "blur(14px)",
     WebkitBackdropFilter: "blur(14px)",
+  },
+
+  tileFractured: {
+    border: "1px solid rgba(255,80,80,0.22)",
+    boxShadow:
+      "0 14px 28px rgba(0,0,0,0.24), 0 0 18px rgba(255,50,50,0.08)",
   },
 
   tileMobile: {
@@ -1033,6 +1085,14 @@ const styles = {
     overflow: "hidden",
   },
 
+  mintCardFractured: {
+    border: "1px solid rgba(255,80,80,0.42)",
+    background:
+      "linear-gradient(180deg, rgba(104,16,24,0.25), rgba(20,4,8,0.72))",
+    boxShadow:
+      "0 18px 32px rgba(0,0,0,0.30), 0 0 24px rgba(255,40,40,0.14)",
+  },
+
   mintCardMobile: {
     padding: "18px 16px 16px",
     borderRadius: 16,
@@ -1052,16 +1112,50 @@ const styles = {
     lineHeight: 1.2,
   },
 
+  fracturedText: {
+    textShadow: "1px 0 rgba(255,40,40,0.55), -1px 0 rgba(80,170,255,0.32)",
+  },
+
   mintCardSub: {
     fontSize: 14,
     color: "rgba(214,226,255,0.72)",
-    marginBottom: 20,
+    marginBottom: 14,
   },
 
   mintCardSubMobile: {
     fontSize: 13,
     lineHeight: 1.45,
     marginBottom: 16,
+  },
+
+  guardianMessage: {
+    marginBottom: 14,
+    fontSize: 13,
+    lineHeight: 1.45,
+    color: "rgba(234,241,255,0.88)",
+  },
+
+  warningBox: {
+    marginBottom: 14,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,184,74,0.34)",
+    background: "rgba(255,184,74,0.10)",
+    color: "rgba(255,234,196,0.96)",
+    fontSize: 13,
+    lineHeight: 1.45,
+  },
+
+  fracturedBox: {
+    marginBottom: 14,
+    padding: "10px 12px",
+    borderRadius: 12,
+    border: "1px solid rgba(255,80,80,0.40)",
+    background: "rgba(255,40,40,0.10)",
+    color: "rgba(255,214,220,0.96)",
+    fontSize: 13,
+    lineHeight: 1.45,
+    letterSpacing: 0.4,
   },
 
   mintControlsRow: {
@@ -1120,10 +1214,6 @@ const styles = {
     maxWidth: 220,
   },
 
-  stepperDisabled: {
-    opacity: 0.5,
-  },
-
   stepperBtn: {
     width: 54,
     height: "100%",
@@ -1154,11 +1244,6 @@ const styles = {
   qtyInputMobile: {
     flex: 1,
     width: 72,
-  },
-
-  qtyInputDisabled: {
-    cursor: "not-allowed",
-    opacity: 1,
   },
 
   mintActionBlock: {
@@ -1224,33 +1309,26 @@ const styles = {
     border: "1px solid rgba(255,90,110,0.68)",
     background:
       "linear-gradient(180deg, rgba(220,54,76,0.92), rgba(155,22,42,0.96))",
-    boxShadow:
-      "0 0 18px rgba(255,70,98,0.20), inset 0 0 8px rgba(255,255,255,0.05)",
   },
 
   mintActionBtnConnected: {
     border: "1px solid rgba(74,214,120,0.72)",
     background:
       "linear-gradient(180deg, rgba(42,176,86,0.92), rgba(20,122,52,0.96))",
-    boxShadow:
-      "0 0 18px rgba(70,214,120,0.20), inset 0 0 8px rgba(255,255,255,0.05)",
-  },
-
-  mintActionBtnOwned: {
-    border: "1px solid rgba(120,180,255,0.30)",
-    background:
-      "linear-gradient(180deg, rgba(34,58,94,0.94), rgba(18,28,48,0.98))",
-    boxShadow:
-      "0 0 18px rgba(120,180,255,0.10), inset 0 0 8px rgba(255,255,255,0.04)",
-    cursor: "not-allowed",
   },
 
   mintActionBtnWarn: {
     border: "1px solid rgba(255,184,74,0.68)",
     background:
       "linear-gradient(180deg, rgba(210,140,34,0.92), rgba(142,84,12,0.96))",
+  },
+
+  mintActionBtnFractured: {
+    border: "1px solid rgba(255,80,80,0.72)",
+    background:
+      "linear-gradient(180deg, rgba(210,45,55,0.94), rgba(112,10,22,0.98))",
     boxShadow:
-      "0 0 18px rgba(255,184,74,0.18), inset 0 0 8px rgba(255,255,255,0.05)",
+      "0 0 22px rgba(255,70,80,0.28), inset 0 0 8px rgba(255,255,255,0.05)",
   },
 
   statusRow: {
@@ -1365,6 +1443,11 @@ const styles = {
     overflow: "hidden",
   },
 
+  cubeCardFractured: {
+    border: "1px solid rgba(255,80,80,0.30)",
+    boxShadow: "0 18px 32px rgba(0,0,0,0.26), 0 0 20px rgba(255,40,40,0.14)",
+  },
+
   cubeCardTablet: {
     minHeight: 280,
   },
@@ -1381,6 +1464,11 @@ const styles = {
     objectFit: "cover",
     borderRadius: 14,
     display: "block",
+  },
+
+  cubeImageFractured: {
+    filter: "contrast(1.22) saturate(0.85) hue-rotate(-12deg)",
+    transform: "skewX(-1.5deg)",
   },
 
   cubeImageMobile: {
@@ -1406,6 +1494,11 @@ const styles = {
       "0 16px 30px rgba(0,0,0,0.26), inset 0 0 0 1px rgba(255,255,255,0.015)",
     textAlign: "center",
     flexWrap: "wrap",
+  },
+
+  bottomStripFractured: {
+    border: "1px solid rgba(255,80,80,0.30)",
+    color: "rgba(255,214,220,0.96)",
   },
 
   bottomStripMobile: {

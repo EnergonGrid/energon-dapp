@@ -784,8 +784,8 @@ It advances when conditions are met.`
           <div style={panelStyle(ctx)}>
             {isMobile && (
               <button onClick={() => setOpen(false)} style={mobileCloseStyle}>
-                ×
-              </button>
+              ×
+            </button>
             )}
 
             <div style={titleStyle(ctx)}>Q.O.R.I</div>

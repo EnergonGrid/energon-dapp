@@ -10,42 +10,24 @@ import {
   RPCS,
 } from "../lib/contract";
 
-/**
- * ✅ Mainnet contracts (locked)
- */
 const EON_ADDRESS = "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
 
-/**
- * ✅ Controller address (locked fallback)
- */
 const CONTROLLER_ADDRESS_LOCKED =
   "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
 
-/**
- * ✅ Burn pool constants from locked controller design
- */
 const TOTAL_BURN_POOL = 5_250_000n * 10n ** 18n;
 
-/**
- * ✅ EON icon
- */
 const EON_ICON_URI =
   "https://red-secret-dragonfly-529.mypinata.cloud/ipfs/bafybeiccfdp4aez6gqva5yx5cmixc7dugqxl6eee5nhb54sdhpnidpmt7u";
 
-/**
- * ✅ Time constants
- */
-const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
+const TICK_PENDING_KEY = "energon_tick_pending_tx";
+
 const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
 const THREE_MONTHS_SECONDS = 90 * 24 * 60 * 60;
 
-/**
- * ✅ Responsive breakpoints
- */
 const MOBILE_BREAKPOINT = 760;
 const SMALL_PHONE_BREAKPOINT = 430;
 
-// Minimal ABIs (dashboard only)
 const CONTROLLER_ABI = [
   "function energonHeight() view returns (uint256)",
   "function secondsUntilNextEnergonBlock() view returns (uint256)",
@@ -150,6 +132,7 @@ export default function Dashboard() {
   const [isTicking, setIsTicking] = useState(false);
   const [cooldownLeft, setCooldownLeft] = useState(0);
   const [lastTickTx, setLastTickTx] = useState("");
+  const [pendingTickTx, setPendingTickTx] = useState("");
 
   const [backoffMs, setBackoffMs] = useState(0);
   const backoffRef = useRef(0);
@@ -157,8 +140,6 @@ export default function Dashboard() {
   const lastTickHeightRef = useRef(null);
   const accountRef = useRef("");
   const prevBurnedRef = useRef(null);
-
-  // ✅ Prevent overlapping dashboard reads
   const refreshInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -371,6 +352,31 @@ export default function Dashboard() {
     setCooldownLeft(Math.max(0, Number(seconds || 0)));
   }
 
+  function savePendingTickTx(hash) {
+    try {
+      if (!hash) return;
+      localStorage.setItem(TICK_PENDING_KEY, hash);
+      setPendingTickTx(hash);
+    } catch {
+      setPendingTickTx(hash);
+    }
+  }
+
+  function clearPendingTickTx() {
+    try {
+      localStorage.removeItem(TICK_PENDING_KEY);
+    } catch {}
+    setPendingTickTx("");
+  }
+
+  function getStoredPendingTickTx() {
+    try {
+      return localStorage.getItem(TICK_PENDING_KEY) || "";
+    } catch {
+      return "";
+    }
+  }
+
   function lockTickForAllTabs(seconds = 45) {
     try {
       const until = Date.now() + seconds * 1000;
@@ -421,6 +427,60 @@ export default function Dashboard() {
     if (h === null) return;
     lastTickHeightRef.current = h;
   }
+
+  useEffect(() => {
+    const stored = getStoredPendingTickTx();
+    if (stored) {
+      setPendingTickTx(stored);
+      setLastTickTx(stored);
+      setStatus(`Tick pending — awaiting confirmation: ${stored}`);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pendingTickTx) return;
+
+    let stopped = false;
+
+    async function checkPendingTick() {
+      try {
+        const provider = getRoProvider();
+        if (!provider) return;
+
+        const receipt = await provider.getTransactionReceipt(pendingTickTx);
+
+        if (!receipt) {
+          setStatus(`Tick pending — awaiting confirmation: ${pendingTickTx}`);
+          return;
+        }
+
+        if (receipt.status === 1) {
+          clearPendingTickTx();
+          clearBackoff();
+          setStatus("Tick confirmed ✅");
+          await refreshRead(null, accountRef.current);
+          return;
+        }
+
+        clearPendingTickTx();
+        setStatus("Tick failed or reverted");
+        await refreshRead(null, accountRef.current);
+      } catch (e) {
+        console.warn("pending tick check failed", e);
+      }
+    }
+
+    checkPendingTick();
+
+    const t = setInterval(() => {
+      if (!stopped) checkPendingTick();
+    }, 7000);
+
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, [pendingTickTx]);
 
   async function switchToMainnet() {
     if (!window.ethereum) return setStatus("MetaMask not found");
@@ -639,6 +699,9 @@ export default function Dashboard() {
     if (!window.ethereum) return setStatus("MetaMask not found");
     if (!accountRef.current) return setStatus("Connect wallet first");
     if (!chainOk) return setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
+    if (pendingTickTx) {
+      return setStatus(`Tick pending — awaiting confirmation: ${pendingTickTx}`);
+    }
     if (isTicking) return;
     if (cooldownLeft > 0) return setStatus(`Cooldown: wait ${cooldownLeft}s`);
     if (isTickLocked()) {
@@ -657,6 +720,8 @@ export default function Dashboard() {
       );
     }
 
+    let submittedHash = "";
+
     try {
       setIsTicking(true);
       setStatus("Submitting tick…");
@@ -673,18 +738,30 @@ export default function Dashboard() {
       const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, signer);
 
       const tx = await controller.tickEnergon();
+
+      submittedHash = tx.hash;
       setLastTickTx(tx.hash);
-      setStatus(`Tick submitted: ${tx.hash}`);
+      savePendingTickTx(tx.hash);
+
+      setStatus(`Tick pending — awaiting confirmation: ${tx.hash}`);
 
       await tx.wait();
+
+      clearPendingTickTx();
       clearBackoff();
       setStatus("Tick confirmed ✅");
 
       await refreshRead(browserProvider, accountRef.current);
     } catch (e) {
       const msg = e?.shortMessage || e?.message || "Tick failed";
-      setStatus(msg);
-      bumpBackoff();
+
+      if (submittedHash) {
+        setStatus(`Tick submitted. Waiting for chain confirmation: ${submittedHash}`);
+      } else {
+        clearPendingTickTx();
+        setStatus(msg);
+        bumpBackoff();
+      }
     } finally {
       setIsTicking(false);
     }
@@ -698,6 +775,12 @@ export default function Dashboard() {
       const acct = accountRef.current;
 
       if (!autoTickOn || !window.ethereum || !acct || !chainOk) return;
+
+      if (pendingTickTx) {
+        setStatus(`Tick pending — awaiting confirmation: ${pendingTickTx}`);
+        return;
+      }
+
       if (
         isTicking ||
         cooldownLeft > 0 ||
@@ -706,8 +789,11 @@ export default function Dashboard() {
       ) {
         return;
       }
+
       if (!tickAllowed) return;
       if (alreadyTickedThisHeight(energonHeight)) return;
+
+      let submittedHash = "";
 
       try {
         setIsTicking(true);
@@ -725,17 +811,28 @@ export default function Dashboard() {
         const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, signer);
 
         const tx = await controller.tickEnergon();
+
+        submittedHash = tx.hash;
         setLastTickTx(tx.hash);
-        setStatus(`Auto-tick submitted: ${tx.hash}`);
+        savePendingTickTx(tx.hash);
+        setStatus(`Auto-tick pending — awaiting confirmation: ${tx.hash}`);
+
         await tx.wait();
 
+        clearPendingTickTx();
         clearBackoff();
         setStatus("Auto-tick confirmed ✅");
         await refreshRead(browserProvider, acct);
       } catch (e) {
         const msg = e?.shortMessage || e?.message || "Auto-tick failed";
-        setStatus(msg);
-        bumpBackoff();
+
+        if (submittedHash) {
+          setStatus(`Auto-tick submitted. Waiting for chain confirmation: ${submittedHash}`);
+        } else {
+          clearPendingTickTx();
+          setStatus(msg);
+          bumpBackoff();
+        }
       } finally {
         setIsTicking(false);
       }
@@ -753,6 +850,7 @@ export default function Dashboard() {
     isTicking,
     cooldownLeft,
     energonHeight,
+    pendingTickTx,
   ]);
 
   useEffect(() => {
@@ -819,6 +917,14 @@ export default function Dashboard() {
   }, []);
 
   function tickBadge() {
+    if (pendingTickTx) {
+      return (
+        <span style={{ ...styles.badge, ...styles.badgeWait }}>
+          TICK PENDING
+        </span>
+      );
+    }
+
     if (secondsUntilNext === "-") {
       return (
         <span style={{ ...styles.badge, ...styles.badgeUnknown }}>
@@ -826,6 +932,7 @@ export default function Dashboard() {
         </span>
       );
     }
+
     if (tickAllowed) {
       if (alreadyTickedThisHeight(energonHeight)) {
         return (
@@ -840,6 +947,7 @@ export default function Dashboard() {
         </span>
       );
     }
+
     return (
       <span style={{ ...styles.badge, ...styles.badgeWait }}>
         NOT ALLOWED ({secondsUntilNext}s)
@@ -924,10 +1032,10 @@ export default function Dashboard() {
             style={{
               ...styles.btnPrimary,
               ...(buttonBaseStyle || {}),
-              opacity: !account || !chainOk ? 0.5 : 1,
+              opacity: !account || !chainOk || pendingTickTx ? 0.5 : 1,
             }}
             onClick={() => setAutoTickOn((v) => !v)}
-            disabled={!account || !chainOk}
+            disabled={!account || !chainOk || !!pendingTickTx}
             type="button"
           >
             Auto-Tick: {autoTickOn ? "ON" : "OFF"}
@@ -940,6 +1048,7 @@ export default function Dashboard() {
               opacity:
                 !account ||
                 !chainOk ||
+                pendingTickTx ||
                 !tickAllowed ||
                 isTicking ||
                 cooldownLeft > 0 ||
@@ -951,6 +1060,7 @@ export default function Dashboard() {
             disabled={
               !account ||
               !chainOk ||
+              !!pendingTickTx ||
               !tickAllowed ||
               isTicking ||
               cooldownLeft > 0 ||
@@ -958,7 +1068,9 @@ export default function Dashboard() {
             }
             type="button"
           >
-            {isTicking
+            {pendingTickTx
+              ? "Tick Pending…"
+              : isTicking
               ? "Ticking…"
               : cooldownLeft > 0
               ? `Cooldown ${cooldownLeft}s`
