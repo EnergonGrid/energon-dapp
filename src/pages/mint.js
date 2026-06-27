@@ -1,5 +1,5 @@
 // src/pages/mint.js
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ethers } from "ethers";
 import Nav from "../components/Nav";
 
@@ -7,7 +7,6 @@ import {
   ABI,
   CONTRACT_ADDRESS,
   MAINNET_CHAIN_ID,
-  MAINNET_HEX,
   NETWORK_NAME,
   RPCS,
 } from "../lib/contract";
@@ -15,10 +14,44 @@ import {
 const CUBE_IMAGE_URI =
   "https://red-secret-dragonfly-529.mypinata.cloud/ipfs/bafkreidvd5tpfmhctkuz5bb6xpodytjnlkiffflstxrm4abuhsgqhmftbq";
 
+const MAX_SUPPLY = 1_000_000;
+const MINT_PENDING_KEY = "energon_mint_pending_tx";
+const MINT_LOCK_KEY = "energon_mint_lock_until";
+
+const POLL_INTERVAL_MS = 30000;
+const PENDING_CHECK_INTERVAL_MS = 7000;
+const READ_FAILURE_ROTATE_THRESHOLD = 3;
+
+const LOCKED_CUBE_ADDRESS =
+  "0x30e1076bDf2B123B54486C2721125388af2d2061";
+
+function assertLockedContractAddresses() {
+  if (CONTRACT_ADDRESS.toLowerCase() !== LOCKED_CUBE_ADDRESS.toLowerCase()) {
+    throw new Error("Security check failed: Cube contract mismatch");
+  }
+}
+
+function toUnpaddedHexChainId(id) {
+  return `0x${Number(id).toString(16)}`;
+}
+
+async function getWalletChainId() {
+  if (typeof window === "undefined" || !window.ethereum) return null;
+  const hex = await window.ethereum.request({ method: "eth_chainId" });
+  return parseInt(hex, 16);
+}
+
+function clampPct(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return 0;
+  return Math.max(0, Math.min(100, x));
+}
+
 export default function Mint() {
   const [account, setAccount] = useState("");
-  const [chainId, setChainId] = useState(null);
+  const accountRef = useRef("");
 
+  const [chainId, setChainId] = useState(null);
   const [status, setStatus] = useState("Not connected");
   const [statusTone, setStatusTone] = useState("danger");
 
@@ -28,19 +61,66 @@ export default function Mint() {
 
   const [qty, setQty] = useState(1);
   const [isMinting, setIsMinting] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [pendingMintTx, setPendingMintTx] = useState("");
+  const [lastMintTx, setLastMintTx] = useState("");
 
+  const [copied, setCopied] = useState(false);
   const [ownedCubeCount, setOwnedCubeCount] = useState(0);
   const [viewportWidth, setViewportWidth] = useState(1280);
 
-  const RO_RPC =
-    Array.isArray(RPCS?.[MAINNET_CHAIN_ID]) && RPCS[MAINNET_CHAIN_ID].length
-      ? RPCS[MAINNET_CHAIN_ID][0]
-      : RPCS?.[MAINNET_CHAIN_ID];
+  const readFailureCountRef = useRef(0);
+  const refreshInFlightRef = useRef(false);
+  const roRpcIndexRef = useRef(0);
+  const roProviderRef = useRef(null);
 
-  const roProvider = useMemo(() => {
-    return new ethers.JsonRpcProvider(RO_RPC);
-  }, [RO_RPC]);
+  useEffect(() => {
+    accountRef.current = account || "";
+  }, [account]);
+
+  const rpcList = useMemo(() => {
+    const v = RPCS?.[MAINNET_CHAIN_ID];
+    if (Array.isArray(v)) return v.filter(Boolean);
+    if (typeof v === "string" && v) return [v];
+    return [];
+  }, []);
+
+  function makeRoProvider(index) {
+    const url = rpcList[index % rpcList.length];
+    return new ethers.JsonRpcProvider(url);
+  }
+
+  function getRoProvider() {
+    if (!rpcList.length) return null;
+
+    if (!roProviderRef.current) {
+      roProviderRef.current = makeRoProvider(roRpcIndexRef.current);
+    }
+
+    return roProviderRef.current;
+  }
+
+  function rotateRpc(reason = "read failure") {
+    if (rpcList.length <= 1) return;
+
+    roRpcIndexRef.current = (roRpcIndexRef.current + 1) % rpcList.length;
+    roProviderRef.current = null;
+    readFailureCountRef.current = 0;
+
+    console.warn(`Mint page rotated public RPC due to ${reason}`);
+  }
+
+  function noteReadFailure(reason) {
+    readFailureCountRef.current += 1;
+    console.warn(`Mint read failure: ${reason}`);
+
+    if (readFailureCountRef.current >= READ_FAILURE_ROTATE_THRESHOLD) {
+      rotateRpc(reason);
+    }
+  }
+
+  function noteReadSuccess() {
+    readFailureCountRef.current = 0;
+  }
 
   const chainOk = Number(chainId) === MAINNET_CHAIN_ID;
 
@@ -51,6 +131,23 @@ export default function Mint() {
   const isTablet = viewportWidth <= 980;
   const isMobile = viewportWidth <= 768;
   const isSmallMobile = viewportWidth <= 480;
+
+  const mintedPctValue = useMemo(() => {
+    const minted = Number(totalMinted);
+    if (!Number.isFinite(minted) || minted < 0) return 0;
+    return clampPct((minted / MAX_SUPPLY) * 100);
+  }, [totalMinted]);
+
+  const mintedProgressText = useMemo(() => {
+    const minted = Number(totalMinted);
+    if (!Number.isFinite(minted) || minted < 0) {
+      return `— / ${MAX_SUPPLY.toLocaleString()} · —`;
+    }
+
+    return `${minted.toLocaleString()} / ${MAX_SUPPLY.toLocaleString()} · ${mintedPctValue.toFixed(
+      2
+    )}%`;
+  }, [totalMinted, mintedPctValue]);
 
   const shortAddr = (a) =>
     a ? `${a.slice(0, 6)}…${a.slice(a.length - 4)}` : "Address";
@@ -72,6 +169,50 @@ export default function Mint() {
     if (isSilent) return "SILENT — no EnergonCube detected.";
     if (isCoherent) return "COHERENT — exactly one EnergonCube detected.";
     return "FRACTURED — more than one EnergonCube detected.";
+  }
+
+  function getStoredPendingMintTx() {
+    try {
+      return localStorage.getItem(MINT_PENDING_KEY) || "";
+    } catch {
+      return "";
+    }
+  }
+
+  function savePendingMintTx(hash) {
+    try {
+      if (!hash) return;
+      localStorage.setItem(MINT_PENDING_KEY, hash);
+      setPendingMintTx(hash);
+    } catch {
+      setPendingMintTx(hash);
+    }
+  }
+
+  function clearPendingMintTx() {
+    try {
+      localStorage.removeItem(MINT_PENDING_KEY);
+    } catch { }
+    setPendingMintTx("");
+  }
+
+  function lockMintForAllTabs(seconds = 45) {
+    try {
+      const until = Date.now() + seconds * 1000;
+      localStorage.setItem(MINT_LOCK_KEY, String(until));
+      return until;
+    } catch {
+      return 0;
+    }
+  }
+
+  function isMintLocked() {
+    try {
+      const v = localStorage.getItem(MINT_LOCK_KEY) || "0";
+      return Date.now() < Number(v);
+    } catch {
+      return false;
+    }
   }
 
   function Tile({ label, value, icon = null, right = null, valueStyle = null }) {
@@ -107,19 +248,20 @@ export default function Mint() {
     }
 
     try {
-      const browserProvider = new ethers.BrowserProvider(window.ethereum);
-      const net = await browserProvider.getNetwork();
-      const currentChainId = Number(net.chainId);
+      const currentChainId = await getWalletChainId();
       setChainId(currentChainId);
 
       if (currentChainId === MAINNET_CHAIN_ID) return true;
 
       updateStatus(`Switching to ${NETWORK_NAME}…`, "warning");
 
+      const flareHex = toUnpaddedHexChainId(MAINNET_CHAIN_ID);
+      const rpcUrlForWallet = rpcList[0] || RPCS?.[MAINNET_CHAIN_ID];
+
       try {
         await window.ethereum.request({
           method: "wallet_switchEthereumChain",
-          params: [{ chainId: MAINNET_HEX }],
+          params: [{ chainId: flareHex }],
         });
       } catch (err) {
         if (err?.code === 4902) {
@@ -127,10 +269,11 @@ export default function Mint() {
             method: "wallet_addEthereumChain",
             params: [
               {
-                chainId: MAINNET_HEX,
+                chainId: flareHex,
                 chainName: NETWORK_NAME,
                 nativeCurrency: { name: "Flare", symbol: "FLR", decimals: 18 },
-                rpcUrls: [RO_RPC],
+                rpcUrls: [rpcUrlForWallet],
+                blockExplorerUrls: ["https://flarescan.com"],
               },
             ],
           });
@@ -139,9 +282,7 @@ export default function Mint() {
         }
       }
 
-      const refreshedProvider = new ethers.BrowserProvider(window.ethereum);
-      const refreshedNet = await refreshedProvider.getNetwork();
-      const refreshedChainId = Number(refreshedNet.chainId);
+      const refreshedChainId = await getWalletChainId();
       setChainId(refreshedChainId);
 
       if (refreshedChainId === MAINNET_CHAIN_ID) {
@@ -159,10 +300,7 @@ export default function Mint() {
 
   async function switchToMainnet() {
     await ensureMainnet();
-    try {
-      const browserProvider = new ethers.BrowserProvider(window.ethereum);
-      await refreshRead(browserProvider, account || "");
-    } catch {}
+    await refreshRead(accountRef.current);
   }
 
   async function connectWallet() {
@@ -174,61 +312,73 @@ export default function Mint() {
     try {
       updateStatus("Connecting wallet…", "info");
 
-      const ok = await ensureMainnet();
-      if (!ok) return;
-
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const accounts = await browserProvider.send("eth_requestAccounts", []);
       const addr = accounts?.[0] || "";
 
+      accountRef.current = addr;
       setAccount(addr);
-      await refreshRead(browserProvider, addr);
+
+      const walletChainId = await getWalletChainId();
+      setChainId(walletChainId);
+
+      if (walletChainId !== MAINNET_CHAIN_ID) {
+        updateStatus(`Wrong network. Switch to ${NETWORK_NAME}.`, "warning");
+        await refreshRead(addr);
+        return;
+      }
+
+      await refreshRead(addr);
     } catch (e) {
       updateStatus(e?.message || "Connect failed", "danger");
     }
   }
 
-  async function refreshRead(optionalProvider = null, optionalAccount = "") {
+  async function refreshRead(optionalAccount = "") {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+
     try {
-      const providerToUse = optionalProvider || roProvider;
+      const providerToUse = getRoProvider();
+      if (!providerToUse) {
+        updateStatus("No public RPC available", "danger");
+        return;
+      }
+
       const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, providerToUse);
+      const acct = optionalAccount || accountRef.current || account || "";
 
-      try {
-        const tm = await cube.totalMinted();
-        setTotalMinted(tm.toString());
-      } catch {
-        setTotalMinted("—");
+      const readCalls = [cube.totalMinted(), cube.priceInFlrWei()];
+      if (acct) readCalls.push(cube.balanceOf(acct));
+
+      const results = await Promise.allSettled(readCalls);
+
+      const totalMintedResult = results[0];
+      const priceResult = results[1];
+      const balanceResult = acct ? results[2] : null;
+
+      let anySuccess = false;
+
+      if (totalMintedResult.status === "fulfilled") {
+        anySuccess = true;
+        setTotalMinted(totalMintedResult.value.toString());
+      } else {
+        noteReadFailure("totalMinted failed");
       }
 
-      let p = null;
-      try {
-        p = await cube.priceInFlrWei();
-      } catch {
-        try {
-          p = await cube.priceWei();
-        } catch {
-          try {
-            p = await cube.price();
-          } catch {
-            p = null;
-          }
-        }
-      }
-
-      if (p !== null) {
+      if (priceResult.status === "fulfilled") {
+        anySuccess = true;
+        const p = priceResult.value;
         setPriceWei(p);
         setPriceFlr(`${ethers.formatEther(p)} FLR`);
       } else {
-        setPriceWei(null);
-        setPriceFlr("—");
+        noteReadFailure("priceInFlrWei failed");
       }
 
-      const acct = optionalAccount || account || "";
-
-      if (acct) {
-        try {
-          const bal = await cube.balanceOf(acct);
-          const count = Number(bal.toString());
+      if (acct && balanceResult) {
+        if (balanceResult.status === "fulfilled") {
+          anySuccess = true;
+          const count = Number(balanceResult.value.toString());
           setOwnedCubeCount(count);
 
           if (count === 0) {
@@ -238,37 +388,78 @@ export default function Mint() {
           } else {
             updateStatus("FRACTURED — more than one EnergonCube detected", "warning");
           }
-        } catch {
-          setOwnedCubeCount(0);
+        } else {
+          noteReadFailure("balanceOf failed");
         }
-      } else {
+      } else if (!acct) {
         setOwnedCubeCount(0);
       }
 
       if (window.ethereum) {
-        const bp = optionalProvider || new ethers.BrowserProvider(window.ethereum);
-        const n = await bp.getNetwork();
-        setChainId(Number(n.chainId));
+        try {
+          const walletChainId = await getWalletChainId();
+          setChainId(walletChainId);
+        } catch { }
       }
+
+      if (anySuccess) noteReadSuccess();
     } catch (e) {
       console.error(e);
-      updateStatus(e?.message || "Unable to read contract", "danger");
+      rotateRpc("mint refresh failure");
+      updateStatus("Read delayed. Keeping last known values.", "warning");
+    } finally {
+      refreshInFlightRef.current = false;
     }
   }
 
   async function mintNow() {
     if (!window.ethereum) return updateStatus("MetaMask not found", "danger");
-    if (!account) return updateStatus("Connect wallet first", "danger");
-    if (!chainOk) {
+    if (!accountRef.current) return updateStatus("Connect wallet first", "danger");
+
+    if (pendingMintTx) {
+      return updateStatus(
+        `Mint pending — awaiting confirmation: ${pendingMintTx}`,
+        "info"
+      );
+    }
+
+    if (isMinting) return;
+
+    if (isMintLocked()) {
+      return updateStatus(
+        "Mint locked from a recent submission. Try again soon.",
+        "warning"
+      );
+    }
+
+    const walletChainId = await getWalletChainId();
+    setChainId(walletChainId);
+
+    if (walletChainId !== MAINNET_CHAIN_ID) {
       updateStatus(`Wrong network. Switch to ${NETWORK_NAME}.`, "warning");
       return;
     }
+
     if (!priceWei) return updateStatus("Price not loaded yet", "warning");
 
     const q = Math.max(1, Math.floor(Number(qty || 1)));
 
+    const mintedNow = Number(totalMinted);
+
+    if (
+      Number.isFinite(mintedNow) &&
+      mintedNow + q > MAX_SUPPLY
+    ) {
+      updateStatus(
+        "Mint blocked: quantity exceeds remaining EnergonCube supply.",
+        "danger"
+      );
+      return;
+    }
+
     try {
       setIsMinting(true);
+      lockMintForAllTabs(45);
 
       if (isCoherent) {
         updateStatus("Minting another cube will fracture this wallet.", "warning");
@@ -278,26 +469,52 @@ export default function Mint() {
         updateStatus("Preparing mint…", "info");
       }
 
+      assertLockedContractAddresses();
+
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
       const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
 
       const totalValue = priceWei * BigInt(q);
 
-      let tx;
-      try {
-        tx = await cube.mintWithFLR(q, { value: totalValue });
-      } catch {
-        tx = await cube.mint(q, { value: totalValue });
+      const walletBalance = await browserProvider.getBalance(
+        accountRef.current
+      );
+
+      if (walletBalance < totalValue) {
+        try {
+          localStorage.removeItem(MINT_LOCK_KEY);
+        } catch {}
+      
+        updateStatus(
+          "Insufficient FLR balance for selected quantity.",
+          "danger"
+        );
+        return;
       }
 
-      updateStatus(`Mint submitted: ${tx.hash}`, "info");
+      const tx = await cube.mintWithFLR(q, {
+        value: totalValue,
+      });
+
+      setLastMintTx(tx.hash);
+      savePendingMintTx(tx.hash);
+      updateStatus(`Mint pending — awaiting confirmation: ${tx.hash}`, "info");
+
       await tx.wait();
 
-      await refreshRead(browserProvider, account);
+      clearPendingMintTx();
+      await refreshRead(accountRef.current);
       updateStatus("Mint confirmed ✅ EnergonCube minted", "success");
     } catch (e) {
-      updateStatus(e?.shortMessage || e?.message || "Mint failed", "danger");
+      try {
+        localStorage.removeItem(MINT_LOCK_KEY);
+      } catch { }
+
+      updateStatus(
+        e?.shortMessage || e?.message || "Mint failed",
+        "danger"
+      );
     } finally {
       setIsMinting(false);
       setQty(1);
@@ -319,6 +536,60 @@ export default function Mint() {
   }
 
   useEffect(() => {
+    const stored = getStoredPendingMintTx();
+    if (stored) {
+      setPendingMintTx(stored);
+      setLastMintTx(stored);
+      updateStatus(`Mint pending — awaiting confirmation: ${stored}`, "info");
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!pendingMintTx) return;
+
+    let stopped = false;
+
+    async function checkPendingMint() {
+      try {
+        const provider = getRoProvider();
+        if (!provider) return;
+
+        const receipt = await provider.getTransactionReceipt(pendingMintTx);
+
+        if (!receipt) {
+          updateStatus(`Mint pending — awaiting confirmation: ${pendingMintTx}`, "info");
+          return;
+        }
+
+        if (receipt.status === 1) {
+          clearPendingMintTx();
+          updateStatus("Mint confirmed ✅ EnergonCube minted", "success");
+          await refreshRead(accountRef.current);
+          return;
+        }
+
+        clearPendingMintTx();
+        updateStatus("Mint failed or reverted", "danger");
+        await refreshRead(accountRef.current);
+      } catch (e) {
+        console.warn("pending mint check failed", e);
+        noteReadFailure("pending mint receipt failure");
+      }
+    }
+
+    checkPendingMint();
+
+    const t = setInterval(() => {
+      if (!stopped) checkPendingMint();
+    }, PENDING_CHECK_INTERVAL_MS);
+
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, [pendingMintTx]);
+
+  useEffect(() => {
     setQty(1);
   }, []);
 
@@ -333,18 +604,24 @@ export default function Mint() {
   }, []);
 
   useEffect(() => {
-    refreshRead();
+    refreshRead(accountRef.current);
 
+    const t = setInterval(() => {
+      refreshRead(accountRef.current);
+    }, POLL_INTERVAL_MS);
+
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
     if (!window.ethereum) return;
 
-    const onChain = async () => {
+    const onChain = async (chainIdHex) => {
       try {
-        const browserProvider = new ethers.BrowserProvider(window.ethereum);
-        const net = await browserProvider.getNetwork();
-        const nextChainId = Number(net.chainId);
+        const nextChainId = parseInt(chainIdHex, 16);
         setChainId(nextChainId);
 
-        await refreshRead(browserProvider, account);
+        await refreshRead(accountRef.current);
 
         if (nextChainId !== MAINNET_CHAIN_ID) {
           updateStatus(`Wrong network. Switch to ${NETWORK_NAME}.`, "warning");
@@ -357,10 +634,10 @@ export default function Mint() {
     const onAccounts = async (accounts) => {
       try {
         const addr = accounts?.[0] || "";
+        accountRef.current = addr;
         setAccount(addr);
 
-        const browserProvider = new ethers.BrowserProvider(window.ethereum);
-        await refreshRead(browserProvider, addr);
+        await refreshRead(addr);
 
         if (!addr) {
           setOwnedCubeCount(0);
@@ -378,55 +655,57 @@ export default function Mint() {
       window.ethereum.removeListener("chainChanged", onChain);
       window.ethereum.removeListener("accountsChanged", onAccounts);
     };
-  }, [account]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const actionButtonStyle = !account
     ? styles.mintActionBtnDisconnected
     : !chainOk
-    ? styles.mintActionBtnWarn
-    : isFractured
-    ? styles.mintActionBtnFractured
-    : isCoherent
-    ? styles.mintActionBtnWarn
-    : styles.mintActionBtnConnected;
+      ? styles.mintActionBtnWarn
+      : isFractured
+        ? styles.mintActionBtnFractured
+        : isCoherent
+          ? styles.mintActionBtnWarn
+          : styles.mintActionBtnConnected;
 
   const actionButtonText = !account
     ? "Connect Wallet"
     : !chainOk
-    ? `Switch to ${NETWORK_NAME}`
-    : isMinting
-    ? "Minting…"
-    : isFractured
-    ? "Mint While Fractured"
-    : isCoherent
-    ? "Mint Another Cube"
-    : "Mint NFT";
+      ? `Switch to ${NETWORK_NAME}`
+      : pendingMintTx
+        ? "Mint Pending…"
+        : isMinting
+          ? "Minting…"
+          : isFractured
+            ? "Mint While Fractured"
+            : isCoherent
+              ? "Mint Another Cube"
+              : "Mint NFT";
 
   const actionButtonClick = !account
     ? connectWallet
     : !chainOk
-    ? switchToMainnet
-    : mintNow;
+      ? switchToMainnet
+      : mintNow;
 
-  const actionButtonDisabled = isMinting;
+  const actionButtonDisabled = isMinting || !!pendingMintTx;
 
   const statusToneStyle =
     statusTone === "success"
       ? styles.statusInlineSuccess
       : statusTone === "warning"
-      ? styles.statusInlineWarning
-      : statusTone === "info"
-      ? styles.statusInlineInfo
-      : styles.statusInlineDanger;
+        ? styles.statusInlineWarning
+        : statusTone === "info"
+          ? styles.statusInlineInfo
+          : styles.statusInlineDanger;
 
   const statusDotStyle =
     statusTone === "success"
       ? styles.statusDotConnected
       : statusTone === "warning"
-      ? styles.statusDotWarning
-      : statusTone === "info"
-      ? styles.statusDotInfo
-      : styles.statusDotDisconnected;
+        ? styles.statusDotWarning
+        : statusTone === "info"
+          ? styles.statusDotInfo
+          : styles.statusDotDisconnected;
 
   return (
     <div
@@ -491,7 +770,24 @@ export default function Mint() {
             ...(isMobile ? styles.statsGridMobile : null),
           }}
         >
-          <Tile label="TOTAL MINTED" value={totalMinted} valueStyle={styles.bigCenteredValue} />
+          <Tile
+            label="TOTAL MINTED"
+            value={
+              <div style={styles.mintedProgressWrap}>
+                <div style={styles.bigCenteredValue}>{totalMinted}</div>
+                <div style={styles.mintedProgressMeta}>{mintedProgressText}</div>
+                <div style={styles.progressTrack}>
+                  <div
+                    style={{
+                      ...styles.progressFill,
+                      width: `${mintedPctValue}%`,
+                    }}
+                  />
+                </div>
+              </div>
+            }
+            valueStyle={styles.mintedTileValue}
+          />
 
           <Tile
             label="ENTRY (PER CUBE)"
@@ -592,10 +888,10 @@ export default function Mint() {
                     type="button"
                     style={{
                       ...styles.stepperBtn,
-                      ...(isMinting ? styles.stepperBtnDisabled : null),
+                      ...(isMinting || pendingMintTx ? styles.stepperBtnDisabled : null),
                     }}
                     onClick={() => adjustQty(-1)}
-                    disabled={isMinting}
+                    disabled={isMinting || !!pendingMintTx}
                   >
                     –
                   </button>
@@ -608,7 +904,7 @@ export default function Mint() {
                     type="number"
                     min="1"
                     value={qty}
-                    disabled={isMinting}
+                    disabled={isMinting || !!pendingMintTx}
                     onChange={(e) =>
                       setQty(Math.max(1, Math.floor(Number(e.target.value || 1))))
                     }
@@ -618,10 +914,10 @@ export default function Mint() {
                     type="button"
                     style={{
                       ...styles.stepperBtn,
-                      ...(isMinting ? styles.stepperBtnDisabled : null),
+                      ...(isMinting || pendingMintTx ? styles.stepperBtnDisabled : null),
                     }}
                     onClick={() => adjustQty(1)}
-                    disabled={isMinting}
+                    disabled={isMinting || !!pendingMintTx}
                   >
                     +
                   </button>
@@ -651,7 +947,7 @@ export default function Mint() {
                     ...styles.mintActionBtn,
                     ...actionButtonStyle,
                     ...(isMobile ? styles.mintActionBtnMobile : null),
-                    opacity: isMinting ? 0.72 : 1,
+                    opacity: actionButtonDisabled ? 0.72 : 1,
                   }}
                   onClick={actionButtonClick}
                   disabled={actionButtonDisabled}
@@ -670,6 +966,10 @@ export default function Mint() {
                     Status: {status}
                   </span>
                 </div>
+
+                {lastMintTx ? (
+                  <div style={styles.lastTxText}>Last mint tx: {shortAddr(lastMintTx)}</div>
+                ) : null}
               </div>
             </div>
 
@@ -685,7 +985,7 @@ export default function Mint() {
               </div>
               <div style={styles.featureItem}>
                 <span style={styles.featureIcon}>✚</span>
-                <span>Secure Mint</span>
+                <span>Contract-Gated Mint</span>
               </div>
               <div style={styles.featureItem}>
                 <span style={styles.featureIcon}>✓</span>
@@ -1004,6 +1304,40 @@ const styles = {
   tileRight: {
     marginLeft: "auto",
     flexShrink: 0,
+  },
+
+  mintedTileValue: {
+    width: "100%",
+  },
+
+  mintedProgressWrap: {
+    width: "100%",
+  },
+
+  mintedProgressMeta: {
+    marginTop: 6,
+    fontSize: 11,
+    lineHeight: 1.35,
+    color: "rgba(214,229,255,0.76)",
+    fontWeight: 500,
+  },
+
+  progressTrack: {
+    marginTop: 8,
+    width: "100%",
+    height: 6,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
+    border: "1px solid rgba(120,180,255,0.12)",
+  },
+
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    background:
+      "linear-gradient(90deg, rgba(80,170,255,0.76), rgba(160,220,255,0.96))",
+    boxShadow: "0 0 12px rgba(100,180,255,0.25)",
   },
 
   bigCenteredValue: {
@@ -1390,6 +1724,12 @@ const styles = {
 
   statusInlineInfo: {
     color: "rgba(214,234,255,0.94)",
+  },
+
+  lastTxText: {
+    fontSize: 12,
+    color: "rgba(214,229,255,0.68)",
+    paddingLeft: 4,
   },
 
   featureRow: {

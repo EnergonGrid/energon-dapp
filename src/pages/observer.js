@@ -5,12 +5,12 @@ import { Environment } from "@react-three/drei";
 import {
   WagmiProvider,
   createConfig,
+  fallback,
   http,
   useAccount,
   useConnect,
   useDisconnect,
   useReadContract,
-  useWatchBlockNumber,
 } from "wagmi";
 import { injected } from "wagmi/connectors";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -25,34 +25,54 @@ import EnergonEnergyFilaments from "../components/observer/scene/EnergonEnergyFi
 import ObserverHud from "../components/observer/panels/ObserverHud";
 import AttributesPanel from "../components/observer/panels/AttributesPanel";
 
-// --- YOUR CONTRACTS (Flare) ---
 const EON_ADDRESS = "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
 const CUBE_ADDRESS = "0x30e1076bDf2B123B54486C2721125388af2d2061";
-
-// ✅ Controller address (locked fallback)
 const CONTROLLER_ADDRESS_LOCKED = "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
 
-// ✅ Global spark trigger
-const SPARK_MILESTONE = 100;
+const LOCKED_CUBE_ADDRESS =
+  "0x30e1076bDf2B123B54486C2721125388af2d2061";
 
-// ✅ Protocol memory settings
+const LOCKED_CONTROLLER_ADDRESS =
+  "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
+
+const LOCKED_EON_ADDRESS =
+  "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
+
+function assertLockedContractAddresses(controllerAddress = CONTROLLER_ADDRESS_LOCKED) {
+  if (CUBE_ADDRESS.toLowerCase() !== LOCKED_CUBE_ADDRESS.toLowerCase()) {
+    throw new Error("Security check failed: Cube contract mismatch");
+  }
+
+  if (controllerAddress.toLowerCase() !== LOCKED_CONTROLLER_ADDRESS.toLowerCase()) {
+    throw new Error("Security check failed: Controller contract mismatch");
+  }
+
+  if (EON_ADDRESS.toLowerCase() !== LOCKED_EON_ADDRESS.toLowerCase()) {
+    throw new Error("Security check failed: EON contract mismatch");
+  }
+}
+
+const SPARK_MILESTONE = 100;
 const MAX_SUPPLY = 1000000;
 const ENERGON_BLOCK_TIME_SECONDS = 600;
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
-
-// ✅ IMPORTANT: set this to the actual deployed constructor value if it ever changes
 const INITIAL_REWARD_PER_BLOCK_WEI = 25n * 10n ** 18n;
-
-// ✅ Optional UI test override
 const TEST_FORCE_HALVING_STAGE = null;
-
-// ✅ Filament speed while touching archive memory
 const FILAMENT_ACTIVE_PULSE_SPEED = 1.35;
-
-// ✅ Hide protocol clock UI, but keep all logic/data alive
 const SHOW_PROTOCOL_CLOCK = false;
+const MOBILE_DPR = [1, 1.25];
+const DESKTOP_DPR = [1, 1.75];
+const ORBITAL_POSITION_UPDATE_MS = 90;
 
-// --- LAYOUT SETTINGS ---
+const OBSERVER_READ_INTERVAL_MS = 30000;
+const OBSERVER_STATIC_READ_INTERVAL_MS = 60000;
+
+const FLARE_RPCS = [
+  "https://flare-api.flare.network/ext/C/rpc",
+  "https://flare.public-rpc.com",
+  "https://rpc.ankr.com/flare",
+].filter(Boolean);
+
 const NARROW_BREAKPOINT = 1100;
 const MOBILE_BREAKPOINT = 768;
 const TABLET_BREAKPOINT = 980;
@@ -65,11 +85,9 @@ const ATTR_PANEL_MAX_H = 360;
 
 const ATTR_COLLAPSED_H = 44;
 const SHEET_COLLAPSED_H = 52;
-
 const SHEET_INSET = 12;
 const SHEET_H = 320;
 
-// Minimal ABIs
 const erc20Abi = [
   {
     type: "function",
@@ -176,30 +194,51 @@ const controllerMiniAbi = [
   },
 ];
 
-// Flare chain (Mainnet)
 const flare = {
   id: 14,
   name: "Flare",
   network: "flare",
   nativeCurrency: { name: "Flare", symbol: "FLR", decimals: 18 },
   rpcUrls: {
-    default: { http: ["https://flare-api.flare.network/ext/C/rpc"] },
-    public: { http: ["https://flare-api.flare.network/ext/C/rpc"] },
+    default: { http: FLARE_RPCS },
+    public: { http: FLARE_RPCS },
   },
 };
 
 const wagmiConfig = createConfig({
   chains: [flare],
   connectors: [injected()],
-  transports: { [flare.id]: http("https://flare-api.flare.network/ext/C/rpc") },
+  transports: {
+    [flare.id]: fallback(FLARE_RPCS.map((url) => http(url))),
+  },
 });
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      gcTime: 5 * 60 * 1000,
+    },
+  },
+});
 
 function useMounted() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
   return mounted;
+}
+
+function useLastKnown(value) {
+  const [lastKnown, setLastKnown] = useState(value);
+
+  useEffect(() => {
+    if (value !== undefined && value !== null) {
+      setLastKnown(value);
+    }
+  }, [value]);
+
+  return value !== undefined && value !== null ? value : lastKnown;
 }
 
 function formatUnitsSafe(value, decimals) {
@@ -260,16 +299,16 @@ async function fetchJsonWithGatewayFallback(url) {
     url,
     url?.includes("https://ipfs.io/ipfs/")
       ? url.replace(
-          "https://ipfs.io/ipfs/",
-          "https://cloudflare-ipfs.com/ipfs/"
-        )
+        "https://ipfs.io/ipfs/",
+        "https://cloudflare-ipfs.com/ipfs/"
+      )
       : null,
   ].filter(Boolean);
 
   let lastErr = null;
   for (const u of gateways) {
     try {
-      const res = await fetch(u, { cache: "no-store" });
+      const res = await fetch(u, { cache: "force-cache" });
       if (!res.ok) throw new Error(`Metadata fetch failed (${res.status})`);
       return await res.json();
     } catch (e) {
@@ -443,17 +482,23 @@ function OrbitalMemoryNode({
     };
   }, [record.halvingTimestamp, record.halvingIndex]);
 
+  const lastPositionUpdateRef = useRef(0);
+
   useFrame((state) => {
+    const now = performance.now();
+
+    if (now - lastPositionUpdateRef.current < ORBITAL_POSITION_UPDATE_MS) {
+      return;
+    }
+
+    lastPositionUpdateRef.current = now;
+
     const t = state.clock.getElapsedTime();
 
-    const orbitX = Math.sin(t * seed.speed + seed.phase) * seed.orbitRadius;
-    const orbitY = Math.cos(t * seed.speed * 1.15 + seed.phase) * seed.yWave;
-    const orbitZ = Math.sin(t * seed.speed * 0.82 + seed.phase) * seed.zWave;
-
     setPosition([
-      seed.baseX + orbitX,
-      seed.baseY + orbitY,
-      seed.baseZ + orbitZ,
+      seed.baseX + Math.sin(t * seed.speed + seed.phase) * seed.orbitRadius,
+      seed.baseY + Math.cos(t * seed.speed * 1.15 + seed.phase) * seed.yWave,
+      seed.baseZ + Math.sin(t * seed.speed * 0.82 + seed.phase) * seed.zWave,
     ]);
   });
 
@@ -581,19 +626,30 @@ function ObserverInner() {
     address: CUBE_ADDRESS,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: {
+      enabled: !!address,
+      staleTime: OBSERVER_READ_INTERVAL_MS,
+      retry: 2,
+    },
   });
 
   const totalMintedRead = useReadContract({
     abi: cubeMiniAbi,
     address: CUBE_ADDRESS,
     functionName: "totalMinted",
-    query: { enabled: true, refetchInterval: 5000 },
+    query: {
+      enabled: true,
+      refetchInterval: OBSERVER_READ_INTERVAL_MS,
+      staleTime: OBSERVER_READ_INTERVAL_MS,
+      retry: 2,
+    },
   });
+
+  const totalMintedStable = useLastKnown(totalMintedRead.data);
 
   const totalMintedN = useMemo(() => {
     try {
-      const v = totalMintedRead.data;
+      const v = totalMintedStable;
       if (typeof v === "bigint") {
         const max = BigInt(Number.MAX_SAFE_INTEGER);
         return v > max ? Number.MAX_SAFE_INTEGER : Number(v);
@@ -603,24 +659,37 @@ function ObserverInner() {
     } catch {
       return 0;
     }
-  }, [totalMintedRead.data]);
+  }, [totalMintedStable]);
 
   const decimals = useReadContract({
     abi: erc20Abi,
     address: EON_ADDRESS,
     functionName: "decimals",
-    query: { enabled: true },
+    query: {
+      enabled: true,
+      staleTime: OBSERVER_STATIC_READ_INTERVAL_MS,
+      retry: 2,
+    },
   });
+
+  const decimalsStable = useLastKnown(decimals.data);
 
   const eonBal = useReadContract({
     abi: erc20Abi,
     address: EON_ADDRESS,
     functionName: "balanceOf",
     args: address ? [address] : undefined,
-    query: { enabled: !!address },
+    query: {
+      enabled: !!address,
+      staleTime: OBSERVER_READ_INTERVAL_MS,
+      retry: 2,
+    },
   });
 
-  const cubeN = cubeCount.data ? Number(cubeCount.data) : 0;
+  const eonBalStable = useLastKnown(eonBal.data);
+  const cubeCountStable = useLastKnown(cubeCount.data);
+
+  const cubeN = cubeCountStable ? Number(cubeCountStable) : 0;
 
   const mode = !isConnected
     ? "DISCONNECTED"
@@ -638,6 +707,7 @@ function ObserverInner() {
     query: {
       enabled: !!address && isConnected && mode === "COHERENT",
       retry: 0,
+      staleTime: OBSERVER_READ_INTERVAL_MS,
     },
   });
 
@@ -682,13 +752,10 @@ function ObserverInner() {
 
   const candidateTokenId = useMemo(() => {
     if (mode !== "COHERENT") return null;
-
     if (manualTokenIdValid) return BigInt(manualTokenIdClean);
-
     if (tokenOfOwnerByIndex.isSuccess && tokenOfOwnerByIndex.data != null) {
       return tokenOfOwnerByIndex.data;
     }
-
     return null;
   }, [
     mode,
@@ -709,6 +776,8 @@ function ObserverInner() {
         isConnected &&
         mode === "COHERENT" &&
         candidateTokenId != null,
+      staleTime: OBSERVER_READ_INTERVAL_MS,
+      retry: 1,
     },
   });
 
@@ -762,7 +831,11 @@ function ObserverInner() {
     address: CUBE_ADDRESS,
     functionName: "tokenURI",
     args: derivedTokenId != null ? [derivedTokenId] : undefined,
-    query: { enabled: mode === "COHERENT" && derivedTokenId != null },
+    query: {
+      enabled: mode === "COHERENT" && derivedTokenId != null,
+      staleTime: OBSERVER_STATIC_READ_INTERVAL_MS,
+      retry: 2,
+    },
   });
 
   useEffect(() => {
@@ -818,9 +891,7 @@ function ObserverInner() {
     [derivedTokenId]
   );
 
-  const isGenesis = useMemo(() => {
-    return tokenIdStr === "1";
-  }, [tokenIdStr]);
+  const isGenesis = useMemo(() => tokenIdStr === "1", [tokenIdStr]);
 
   const rarityTier = useMemo(() => {
     if (tokenIdStr === "1") return "Genesis";
@@ -838,7 +909,7 @@ function ObserverInner() {
     [tokenIdStr, rarityTier]
   );
 
-  const eonText = formatUnitsSafe(eonBal.data, decimals.data);
+  const eonText = formatUnitsSafe(eonBalStable, decimalsStable);
 
   const canShowAttributes = isBound && meta && !metaErr;
   const bottomPad =
@@ -861,13 +932,6 @@ function ObserverInner() {
     return null;
   }, [mode, candidateTokenId, ownerOfRead.isLoading, ownership.status]);
 
-  useWatchBlockNumber({
-    enabled: isConnected && mode === "COHERENT" && isBound,
-    onBlockNumber() {
-      setBeat((b) => b + 1);
-    },
-  });
-
   useEffect(() => {
     if (!(isConnected && mode === "COHERENT" && isBound)) return;
 
@@ -882,18 +946,31 @@ function ObserverInner() {
     abi: cubeMiniAbi,
     address: CUBE_ADDRESS,
     functionName: "controller",
-    query: { enabled: true },
+    query: {
+      enabled: true,
+      staleTime: OBSERVER_STATIC_READ_INTERVAL_MS,
+      retry: 2,
+    },
   });
 
   const controllerAddress = useMemo(() => {
     const addr = controllerAddrRead?.data;
+
     if (
       typeof addr === "string" &&
       addr &&
       addr !== "0x0000000000000000000000000000000000000000"
     ) {
-      return addr;
+      try {
+        assertLockedContractAddresses(addr);
+        return addr;
+      } catch (e) {
+        console.error(e);
+        return CONTROLLER_ADDRESS_LOCKED;
+      }
     }
+
+    assertLockedContractAddresses(CONTROLLER_ADDRESS_LOCKED);
     return CONTROLLER_ADDRESS_LOCKED;
   }, [controllerAddrRead?.data]);
 
@@ -903,7 +980,9 @@ function ObserverInner() {
     functionName: "energonHeight",
     query: {
       enabled: !!controllerAddress,
-      refetchInterval: 5000,
+      refetchInterval: OBSERVER_READ_INTERVAL_MS,
+      staleTime: OBSERVER_READ_INTERVAL_MS,
+      retry: 2,
     },
   });
 
@@ -913,7 +992,9 @@ function ObserverInner() {
     functionName: "launchTime",
     query: {
       enabled: !!controllerAddress,
-      refetchInterval: 60000,
+      refetchInterval: OBSERVER_STATIC_READ_INTERVAL_MS,
+      staleTime: OBSERVER_STATIC_READ_INTERVAL_MS,
+      retry: 2,
     },
   });
 
@@ -923,7 +1004,9 @@ function ObserverInner() {
     functionName: "halvingInterval",
     query: {
       enabled: !!controllerAddress,
-      refetchInterval: 60000,
+      refetchInterval: OBSERVER_STATIC_READ_INTERVAL_MS,
+      staleTime: OBSERVER_STATIC_READ_INTERVAL_MS,
+      retry: 2,
     },
   });
 
@@ -933,7 +1016,9 @@ function ObserverInner() {
     functionName: "currentRewardPerBlock",
     query: {
       enabled: !!controllerAddress,
-      refetchInterval: 60000,
+      refetchInterval: OBSERVER_STATIC_READ_INTERVAL_MS,
+      staleTime: OBSERVER_STATIC_READ_INTERVAL_MS,
+      retry: 2,
     },
   });
 
@@ -943,64 +1028,72 @@ function ObserverInner() {
     functionName: "lastHalvingTime",
     query: {
       enabled: !!controllerAddress,
-      refetchInterval: 60000,
+      refetchInterval: OBSERVER_STATIC_READ_INTERVAL_MS,
+      staleTime: OBSERVER_STATIC_READ_INTERVAL_MS,
+      retry: 2,
     },
   });
 
+  const heightStable = useLastKnown(heightRead.data);
+  const launchTimeStable = useLastKnown(launchTimeRead.data);
+  const halvingIntervalStable = useLastKnown(halvingIntervalRead.data);
+  const rewardPerBlockStable = useLastKnown(rewardPerBlockRead.data);
+  const lastHalvingTimeStable = useLastKnown(lastHalvingTimeRead.data);
+
   const currentHeight = useMemo(() => {
     try {
-      const v = heightRead.data;
+      const v = heightStable;
       if (typeof v === "bigint") return Number(v);
       if (typeof v === "number") return v;
       return 0;
     } catch {
       return 0;
     }
-  }, [heightRead.data]);
+  }, [heightStable]);
 
   const launchTimeSec = useMemo(() => {
     try {
-      const v = launchTimeRead.data;
+      const v = launchTimeStable;
       if (typeof v === "bigint") return Number(v);
       if (typeof v === "number") return v;
       return 0;
     } catch {
       return 0;
     }
-  }, [launchTimeRead.data]);
+  }, [launchTimeStable]);
 
   const halvingIntervalSec = useMemo(() => {
     try {
-      const v = halvingIntervalRead.data;
+      const v = halvingIntervalStable;
       if (typeof v === "bigint") return Number(v);
       if (typeof v === "number") return v;
       return 4 * SECONDS_PER_YEAR;
     } catch {
       return 4 * SECONDS_PER_YEAR;
     }
-  }, [halvingIntervalRead.data]);
+  }, [halvingIntervalStable]);
 
   const lastHalvingTimeSec = useMemo(() => {
     try {
-      const v = lastHalvingTimeRead.data;
+      const v = lastHalvingTimeStable;
       if (typeof v === "bigint") return Number(v);
       if (typeof v === "number") return v;
       return launchTimeSec;
     } catch {
       return launchTimeSec;
     }
-  }, [lastHalvingTimeRead.data, launchTimeSec]);
+  }, [lastHalvingTimeStable, launchTimeSec]);
 
   const currentRewardPerBlockWei = useMemo(() => {
     try {
-      const v = rewardPerBlockRead.data;
+      const v = rewardPerBlockStable;
       if (typeof v === "bigint") return v;
       if (typeof v === "number") return BigInt(v);
       return INITIAL_REWARD_PER_BLOCK_WEI;
     } catch {
       return INITIAL_REWARD_PER_BLOCK_WEI;
     }
-  }, [rewardPerBlockRead.data]);
+  }, [rewardPerBlockStable]);
 
   const maxHalvingCount = useMemo(() => {
     return countMaxHalvings(INITIAL_REWARD_PER_BLOCK_WEI);
@@ -1051,7 +1144,7 @@ function ObserverInner() {
   useEffect(() => {
     if (!isConnected) return;
     if (!isBound) return;
-    if (!heightRead?.data) return;
+    if (!heightStable) return;
 
     if (burstTimerRef.current) {
       clearInterval(burstTimerRef.current);
@@ -1077,7 +1170,7 @@ function ObserverInner() {
       }, gapMs);
     }
 
-    const h = Number(heightRead.data);
+    const h = Number(heightStable);
     if (!Number.isFinite(h) || h <= 0) return;
 
     const milestoneIndex = Math.floor((h - 1) / SPARK_MILESTONE);
@@ -1098,15 +1191,13 @@ function ObserverInner() {
         burstTimerRef.current = null;
       }
     };
-  }, [isConnected, isBound, heightRead?.data]);
+  }, [isConnected, isBound, heightStable]);
 
   const displayedCandidateId = useMemo(() => {
     if (candidateTokenId != null) return safeBigIntToString(candidateTokenId);
     return "—";
   }, [candidateTokenId]);
 
-  // ✅ GRID uses one stable camera only.
-  // ✅ GridScene.js is now the single source of truth for desktop/mobile grid sizing.
   const cameraConfig = useMemo(() => {
     if (viewMode === "GRID") {
       if (isMobile) return { position: [0, 0, 1.0], fov: 65 };
@@ -1305,7 +1396,7 @@ function ObserverInner() {
           key={cameraKey}
           style={{ pointerEvents: "auto" }}
           camera={cameraConfig}
-          dpr={isMobile ? [1, 1.5] : [1, 2]}
+          dpr={isMobile ? MOBILE_DPR : DESKTOP_DPR}
           gl={{ antialias: true, alpha: true }}
         >
           {viewMode === "GRID" ? (

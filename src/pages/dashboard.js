@@ -5,7 +5,6 @@ import {
   ABI,
   CONTRACT_ADDRESS,
   MAINNET_CHAIN_ID,
-  MAINNET_HEX,
   NETWORK_NAME,
   RPCS,
 } from "../lib/contract";
@@ -21,12 +20,41 @@ const EON_ICON_URI =
   "https://red-secret-dragonfly-529.mypinata.cloud/ipfs/bafybeiccfdp4aez6gqva5yx5cmixc7dugqxl6eee5nhb54sdhpnidpmt7u";
 
 const TICK_PENDING_KEY = "energon_tick_pending_tx";
+const TICK_LOCK_KEY = "energon_tick_lock_until";
+
+const POLL_INTERVAL_MS = 30000;
+const PENDING_CHECK_INTERVAL_MS = 7000;
+const AUTO_TICK_INTERVAL_MS = 6000;
+const READ_FAILURE_ROTATE_THRESHOLD = 3;
 
 const ONE_YEAR_SECONDS = 365 * 24 * 60 * 60;
 const THREE_MONTHS_SECONDS = 90 * 24 * 60 * 60;
 
 const MOBILE_BREAKPOINT = 760;
 const SMALL_PHONE_BREAKPOINT = 430;
+
+const LOCKED_CUBE_ADDRESS =
+  "0x30e1076bDf2B123B54486C2721125388af2d2061";
+
+const LOCKED_CONTROLLER_ADDRESS =
+  "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
+
+const LOCKED_EON_ADDRESS =
+  "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
+
+function assertLockedContractAddresses(controllerAddress = CONTROLLER_ADDRESS_LOCKED) {
+  if (CONTRACT_ADDRESS.toLowerCase() !== LOCKED_CUBE_ADDRESS.toLowerCase()) {
+    throw new Error("Security check failed: Cube contract mismatch");
+  }
+
+  if (controllerAddress.toLowerCase() !== LOCKED_CONTROLLER_ADDRESS.toLowerCase()) {
+    throw new Error("Security check failed: Controller contract mismatch");
+  }
+
+  if (EON_ADDRESS.toLowerCase() !== LOCKED_EON_ADDRESS.toLowerCase()) {
+    throw new Error("Security check failed: EON contract mismatch");
+  }
+}
 
 const CONTROLLER_ABI = [
   "function energonHeight() view returns (uint256)",
@@ -151,6 +179,7 @@ export default function Dashboard() {
   const accountRef = useRef("");
   const prevBurnedRef = useRef(null);
   const refreshInFlightRef = useRef(false);
+  const readFailureCountRef = useRef(0);
 
   useEffect(() => {
     function handleResize() {
@@ -196,12 +225,34 @@ export default function Dashboard() {
     if (!roProviderRef.current) {
       roProviderRef.current = makeRoProvider(roRpcIndexRef.current);
     }
+
     return roProviderRef.current;
   }
 
+  function rotateRpc(reason = "read failure") {
+    if (rpcList.length <= 1) return;
+
+    roRpcIndexRef.current = (roRpcIndexRef.current + 1) % rpcList.length;
+    roProviderRef.current = null;
+    readFailureCountRef.current = 0;
+
+    console.warn(`Rotated public RPC due to ${reason}`);
+  }
+
+  function noteReadFailure(reason) {
+    readFailureCountRef.current += 1;
+
+    if (readFailureCountRef.current >= READ_FAILURE_ROTATE_THRESHOLD) {
+      rotateRpc(reason);
+    }
+  }
+
+  function noteReadSuccess() {
+    readFailureCountRef.current = 0;
+  }
+
   const walletConnected = !!account;
-  const chainOk =
-    walletConnected && Number(chainId) === MAINNET_CHAIN_ID;
+  const chainOk = walletConnected && Number(chainId) === MAINNET_CHAIN_ID;
 
   const shortAddr = (a) =>
     a ? `${a.slice(0, 6)}…${a.slice(a.length - 4)}` : "-";
@@ -388,7 +439,7 @@ export default function Dashboard() {
   function lockTickForAllTabs(seconds = 45) {
     try {
       const until = Date.now() + seconds * 1000;
-      localStorage.setItem("energon_tick_lock_until", String(until));
+      localStorage.setItem(TICK_LOCK_KEY, String(until));
       return until;
     } catch {
       return 0;
@@ -397,7 +448,7 @@ export default function Dashboard() {
 
   function isTickLocked() {
     try {
-      const v = localStorage.getItem("energon_tick_lock_until") || "0";
+      const v = localStorage.getItem(TICK_LOCK_KEY) || "0";
       return Date.now() < Number(v);
     } catch {
       return false;
@@ -436,6 +487,28 @@ export default function Dashboard() {
     lastTickHeightRef.current = h;
   }
 
+  async function readControllerAddressPublic() {
+    const provider = getRoProvider();
+    if (!provider) throw new Error("No public RPC available");
+
+    const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, provider);
+
+    try {
+      const ctrl = await cube.controller();
+
+      if (ctrl && ctrl !== ethers.ZeroAddress) {
+        setControllerAddr(ctrl);
+        return ctrl;
+      }
+    } catch (e) {
+      console.warn("public controller read failed; using locked fallback", e);
+      noteReadFailure("controller lookup failure");
+    }
+
+    setControllerAddr(CONTROLLER_ADDRESS_LOCKED);
+    return CONTROLLER_ADDRESS_LOCKED;
+  }
+
   useEffect(() => {
     const stored = getStoredPendingTickTx();
     if (stored) {
@@ -466,15 +539,16 @@ export default function Dashboard() {
           clearPendingTickTx();
           clearBackoff();
           setStatus("Tick confirmed ✅");
-          await refreshRead(null, accountRef.current);
+          await refreshRead(accountRef.current);
           return;
         }
 
         clearPendingTickTx();
         setStatus("Tick failed or reverted");
-        await refreshRead(null, accountRef.current);
+        await refreshRead(accountRef.current);
       } catch (e) {
         console.warn("pending tick check failed", e);
+        noteReadFailure("pending tx receipt failure");
       }
     }
 
@@ -482,7 +556,7 @@ export default function Dashboard() {
 
     const t = setInterval(() => {
       if (!stopped) checkPendingTick();
-    }, 7000);
+    }, PENDING_CHECK_INTERVAL_MS);
 
     return () => {
       stopped = true;
@@ -492,21 +566,21 @@ export default function Dashboard() {
 
   async function switchToMainnet() {
     if (!window.ethereum) return setStatus("MetaMask not found");
-  
-    const flareHex = toUnpaddedHexChainId(MAINNET_CHAIN_ID); // 0xe
+
+    const flareHex = toUnpaddedHexChainId(MAINNET_CHAIN_ID);
     const rpcUrlForWallet = rpcList[0] || RPCS?.[MAINNET_CHAIN_ID];
-  
+
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
         params: [{ chainId: flareHex }],
       });
-  
+
       const walletChainId = await getWalletChainId();
       setChainId(walletChainId);
-  
+
       setStatus("Switched to Flare Mainnet ✅");
-      await refreshRead(null, accountRef.current);
+      await refreshRead(accountRef.current);
     } catch (err) {
       if (err?.code === 4902) {
         try {
@@ -526,12 +600,12 @@ export default function Dashboard() {
               },
             ],
           });
-  
+
           const walletChainId = await getWalletChainId();
           setChainId(walletChainId);
-  
+
           setStatus("Added + switched to Flare Mainnet ✅");
-          await refreshRead(null, accountRef.current);
+          await refreshRead(accountRef.current);
         } catch (e2) {
           setStatus(e2?.message || "Failed to add chain");
         }
@@ -543,176 +617,233 @@ export default function Dashboard() {
 
   async function connectWallet() {
     if (!window.ethereum) return setStatus("MetaMask not found");
-  
+
     try {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
-  
+
       const accounts = await browserProvider.send("eth_requestAccounts", []);
       const addr = accounts?.[0] || "";
-  
+
       const walletChainId = await getWalletChainId();
       setChainId(walletChainId);
-  
+
       accountRef.current = addr;
       setAccount(addr);
-  
+
       if (walletChainId !== MAINNET_CHAIN_ID) {
         setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
         return;
       }
-  
+
       setStatus("Connected ✅");
-      await refreshRead(null, addr);
+      await refreshRead(addr);
     } catch (e) {
       setStatus(e?.message || "Connect failed");
     }
   }
 
-  async function refreshRead(optionalProvider = null, optionalAccount = null) {
+  async function refreshRead(optionalAccount = null) {
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
 
     try {
-      // Dashboard reads always come from public RPC.
-      // Wallet / BrowserProvider is used only for signing transactions.
       const providerToUse = getRoProvider();
       if (!providerToUse) return;
 
       const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, providerToUse);
 
-      try {
-        const tm = await cube.totalMinted();
-        setTotalMinted(tm.toString());
-      } catch (e) {
-        console.warn("totalMinted read failed; keeping last value", e);
-      }
-
-      let ctrl = null;
-      try {
-        ctrl = await cube.controller();
-        setControllerAddr(ctrl);
-      } catch (e) {
-        console.warn("controller read failed; using locked fallback", e);
-        ctrl = CONTROLLER_ADDRESS_LOCKED;
-        setControllerAddr(ctrl);
-      }
-
-      if (ctrl && ctrl !== ethers.ZeroAddress) {
-        const controller = new ethers.Contract(
-          ctrl,
-          CONTROLLER_ABI,
-          providerToUse
-        );
-
-        try {
-          const h = await controller.energonHeight();
-          setEnergonHeight(h.toString());
-        } catch (e) {
-          console.warn("energonHeight read failed; keeping last value", e);
-        }
-
-        try {
-          const s = await controller.secondsUntilNextEnergonBlock();
-          const sec = Number(s.toString());
-          setSecondsUntilNext(String(sec));
-          setTickAllowed(sec === 0);
-        } catch (e) {
-          console.warn("secondsUntilNext read failed; keeping last value", e);
-        }
-
-        try {
-          const lt = await controller.launchTime();
-          setLaunchTime(Number(lt.toString()));
-        } catch (e) {
-          console.warn("launchTime read failed; keeping last value", e);
-        }
-
-        try {
-          const lht = await controller.lastHalvingTime();
-          setLastHalvingTime(Number(lht.toString()));
-        } catch (e) {
-          console.warn("lastHalvingTime read failed; keeping last value", e);
-        }
-
-        try {
-          const hi = await controller.halvingInterval();
-          setHalvingInterval(Number(hi.toString()));
-        } catch (e) {
-          console.warn("halvingInterval read failed; keeping last value", e);
-        }
-
-        try {
-          const remaining = await controller.burnPoolRemaining();
-          const remainingBig =
-            typeof remaining === "bigint"
-              ? remaining
-              : BigInt(remaining.toString());
-
-          const burnedBig =
-            TOTAL_BURN_POOL > remainingBig
-              ? TOTAL_BURN_POOL - remainingBig
-              : 0n;
-
-          const { pct, bar } = makeBurnBar(burnedBig);
-
-          setBurnPoolRemaining(`${ethers.formatUnits(remainingBig, 18)} EON`);
-          setTotalBurned(`${ethers.formatUnits(burnedBig, 18)} EON`);
-          setBurnProgressBar(bar);
-          setBurnProgressPct(`${pct.toFixed(2)}%`);
-          setBurnProgressPctValue(pct);
-
-          if (
-            prevBurnedRef.current !== null &&
-            typeof prevBurnedRef.current === "bigint" &&
-            burnedBig > prevBurnedRef.current
-          ) {
-            setBurnBlinkCount(6);
-          }
-
-          prevBurnedRef.current = burnedBig;
-        } catch (e) {
-          console.warn("burnPoolRemaining read failed; keeping last value", e);
-        }
-      } else {
-        console.warn("Controller unavailable; keeping last known protocol values");
-      }
-
       const acct = optionalAccount || accountRef.current || account;
 
-      if (acct) {
+      const [totalMintedResult, controllerResult] = await Promise.allSettled([
+        cube.totalMinted(),
+        cube.controller(),
+      ]);
+
+      if (totalMintedResult.status === "fulfilled") {
+        setTotalMinted(totalMintedResult.value.toString());
+      } else {
+        console.warn(
+          "totalMinted read failed; keeping last value",
+          totalMintedResult.reason
+        );
+        noteReadFailure("totalMinted failure");
+      }
+
+      let ctrl = CONTROLLER_ADDRESS_LOCKED;
+
+      if (
+        controllerResult.status === "fulfilled" &&
+        controllerResult.value &&
+        controllerResult.value !== ethers.ZeroAddress
+      ) {
+        ctrl = controllerResult.value;
+      
         try {
-          const bal = await cube.balanceOf(acct);
-          const n = Number(bal.toString());
+          assertLockedContractAddresses(ctrl);
+          setControllerAddr(ctrl);
+        } catch (e) {
+          console.error(e);
+          ctrl = CONTROLLER_ADDRESS_LOCKED;
+          setControllerAddr(CONTROLLER_ADDRESS_LOCKED);
+        }
+      } else {
+        console.warn(
+          "controller read failed; using locked fallback",
+          controllerResult.reason
+        );
+        setControllerAddr(CONTROLLER_ADDRESS_LOCKED);
+        noteReadFailure("controller failure");
+      }
+
+      const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, providerToUse);
+
+      const controllerReads = await Promise.allSettled([
+        controller.energonHeight(),
+        controller.secondsUntilNextEnergonBlock(),
+        controller.launchTime(),
+        controller.lastHalvingTime(),
+        controller.halvingInterval(),
+        controller.burnPoolRemaining(),
+      ]);
+
+      const [
+        heightResult,
+        secondsResult,
+        launchTimeResult,
+        lastHalvingResult,
+        halvingIntervalResult,
+        burnRemainingResult,
+      ] = controllerReads;
+
+      if (heightResult.status === "fulfilled") {
+        setEnergonHeight(heightResult.value.toString());
+      } else {
+        console.warn(
+          "energonHeight read failed; keeping last value",
+          heightResult.reason
+        );
+        noteReadFailure("energonHeight failure");
+      }
+
+      if (secondsResult.status === "fulfilled") {
+        const sec = Number(secondsResult.value.toString());
+        setSecondsUntilNext(String(sec));
+        setTickAllowed(sec === 0);
+      } else {
+        console.warn(
+          "secondsUntilNext read failed; keeping last value",
+          secondsResult.reason
+        );
+        noteReadFailure("secondsUntilNext failure");
+      }
+
+      if (launchTimeResult.status === "fulfilled") {
+        setLaunchTime(Number(launchTimeResult.value.toString()));
+      } else {
+        console.warn(
+          "launchTime read failed; keeping last value",
+          launchTimeResult.reason
+        );
+        noteReadFailure("launchTime failure");
+      }
+
+      if (lastHalvingResult.status === "fulfilled") {
+        setLastHalvingTime(Number(lastHalvingResult.value.toString()));
+      } else {
+        console.warn(
+          "lastHalvingTime read failed; keeping last value",
+          lastHalvingResult.reason
+        );
+        noteReadFailure("lastHalvingTime failure");
+      }
+
+      if (halvingIntervalResult.status === "fulfilled") {
+        setHalvingInterval(Number(halvingIntervalResult.value.toString()));
+      } else {
+        console.warn(
+          "halvingInterval read failed; keeping last value",
+          halvingIntervalResult.reason
+        );
+        noteReadFailure("halvingInterval failure");
+      }
+
+      if (burnRemainingResult.status === "fulfilled") {
+        const remaining = burnRemainingResult.value;
+        const remainingBig =
+          typeof remaining === "bigint"
+            ? remaining
+            : BigInt(remaining.toString());
+
+        const burnedBig =
+          TOTAL_BURN_POOL > remainingBig ? TOTAL_BURN_POOL - remainingBig : 0n;
+
+        const { pct, bar } = makeBurnBar(burnedBig);
+
+        setBurnPoolRemaining(`${ethers.formatUnits(remainingBig, 18)} EON`);
+        setTotalBurned(`${ethers.formatUnits(burnedBig, 18)} EON`);
+        setBurnProgressBar(bar);
+        setBurnProgressPct(`${pct.toFixed(2)}%`);
+        setBurnProgressPctValue(pct);
+
+        if (
+          prevBurnedRef.current !== null &&
+          typeof prevBurnedRef.current === "bigint" &&
+          burnedBig > prevBurnedRef.current
+        ) {
+          setBurnBlinkCount(6);
+        }
+
+        prevBurnedRef.current = burnedBig;
+      } else {
+        console.warn(
+          "burnPoolRemaining read failed; keeping last value",
+          burnRemainingResult.reason
+        );
+        noteReadFailure("burnPoolRemaining failure");
+      }
+
+      if (acct) {
+        const eon = new ethers.Contract(EON_ADDRESS, ERC20_ABI, providerToUse);
+
+        const [cubeBalanceResult, eonBalanceResult] = await Promise.allSettled([
+          cube.balanceOf(acct),
+          eon.balanceOf(acct),
+        ]);
+
+        if (cubeBalanceResult.status === "fulfilled") {
+          const n = Number(cubeBalanceResult.value.toString());
           setCubeBal(String(n));
           if (n === 1) setEligibleText("Eligible ✅");
           else setEligibleText(`Not eligible ❌ (${n} Cubes)`);
-        } catch (e) {
-          console.warn("cube balance read failed; keeping last value", e);
+        } else {
+          console.warn(
+            "cube balance read failed; keeping last value",
+            cubeBalanceResult.reason
+          );
+          noteReadFailure("cube balance failure");
         }
 
-        try {
-          const eon = new ethers.Contract(EON_ADDRESS, ERC20_ABI, providerToUse);
-          const raw = await eon.balanceOf(acct);
-          setEonBal(`${ethers.formatUnits(raw, 18)} EON`);
-        } catch (e) {
-          console.warn("EON balance read failed; keeping last value", e);
+        if (eonBalanceResult.status === "fulfilled") {
+          setEonBal(`${ethers.formatUnits(eonBalanceResult.value, 18)} EON`);
+        } else {
+          console.warn(
+            "EON balance read failed; keeping last value",
+            eonBalanceResult.reason
+          );
+          noteReadFailure("EON balance failure");
         }
       } else {
         setCubeBal("-");
         setEligibleText("-");
         setEonBal("-");
       }
-      
+
+      if (controllerReads.some((r) => r.status === "fulfilled")) {
+        noteReadSuccess();
+      }
     } catch (e) {
       console.warn("Dashboard refresh failed; switching RPC", e);
-
-      if (rpcList.length > 1) {
-        roRpcIndexRef.current =
-          (roRpcIndexRef.current + 1) % rpcList.length;
-
-        roProviderRef.current = null;
-      }
-
+      rotateRpc("full dashboard refresh failure");
       setStatus("Read delayed. Keeping last known values.");
     } finally {
       refreshInFlightRef.current = false;
@@ -754,11 +885,20 @@ export default function Dashboard() {
       setCooldown(20);
       markTickHeight(energonHeight);
 
+      const ctrl = await readControllerAddressPublic();
+
+      assertLockedContractAddresses(ctrl);
+
+      const walletChainId = await getWalletChainId();
+      setChainId(walletChainId);
+
+      if (walletChainId !== MAINNET_CHAIN_ID) {
+        setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
+        return;
+      }
+
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const signer = await browserProvider.getSigner();
-
-      const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-      const ctrl = await cube.controller();
       const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, signer);
 
       const tx = await controller.tickEnergon();
@@ -775,13 +915,17 @@ export default function Dashboard() {
       clearBackoff();
       setStatus("Tick confirmed ✅");
 
-      await refreshRead(null, accountRef.current);
+      await refreshRead(accountRef.current);
     } catch (e) {
       const msg = e?.shortMessage || e?.message || "Tick failed";
 
       if (submittedHash) {
         setStatus(`Tick submitted. Waiting for chain confirmation: ${submittedHash}`);
       } else {
+        try {
+          localStorage.removeItem(TICK_LOCK_KEY);
+        } catch {}
+      
         clearPendingTickTx();
         setStatus(msg);
         bumpBackoff();
@@ -827,11 +971,20 @@ export default function Dashboard() {
         setCooldown(20);
         markTickHeight(energonHeight);
 
+        const ctrl = await readControllerAddressPublic();
+
+        assertLockedContractAddresses(ctrl);
+
+        const walletChainId = await getWalletChainId();
+        setChainId(walletChainId);
+
+        if (walletChainId !== MAINNET_CHAIN_ID) {
+          setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
+          return;
+        }
+
         const browserProvider = new ethers.BrowserProvider(window.ethereum);
         const signer = await browserProvider.getSigner();
-
-        const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
-        const ctrl = await cube.controller();
         const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, signer);
 
         const tx = await controller.tickEnergon();
@@ -846,13 +999,17 @@ export default function Dashboard() {
         clearPendingTickTx();
         clearBackoff();
         setStatus("Auto-tick confirmed ✅");
-        await refreshRead(null, acct);
+        await refreshRead(acct);
       } catch (e) {
         const msg = e?.shortMessage || e?.message || "Auto-tick failed";
 
         if (submittedHash) {
           setStatus(`Auto-tick submitted. Waiting for chain confirmation: ${submittedHash}`);
         } else {
+          try {
+            localStorage.removeItem(TICK_LOCK_KEY);
+          } catch {}
+        
           clearPendingTickTx();
           setStatus(msg);
           bumpBackoff();
@@ -862,7 +1019,7 @@ export default function Dashboard() {
       }
     }
 
-    const interval = setInterval(loop, 6000);
+    const interval = setInterval(loop, AUTO_TICK_INTERVAL_MS);
     return () => {
       stopped = true;
       clearInterval(interval);
@@ -895,11 +1052,11 @@ export default function Dashboard() {
   }, [cooldownLeft]);
 
   useEffect(() => {
-    refreshRead(null, accountRef.current);
+    refreshRead(accountRef.current);
 
     const t = setInterval(() => {
-      refreshRead(null, accountRef.current);
-    }, 10000);
+      refreshRead(accountRef.current);
+    }, POLL_INTERVAL_MS);
 
     return () => clearInterval(t);
   }, []);
@@ -911,7 +1068,7 @@ export default function Dashboard() {
       try {
         const walletChainId = parseInt(chainIdHex, 16);
         setChainId(walletChainId);
-    
+
         if (walletChainId !== MAINNET_CHAIN_ID) {
           setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
           setCubeBal("-");
@@ -919,8 +1076,8 @@ export default function Dashboard() {
           setEonBal("-");
           return;
         }
-    
-        await refreshRead(null, accountRef.current);
+
+        await refreshRead(accountRef.current);
       } catch (e) {
         setStatus(e?.message || "Chain update failed");
       }
@@ -931,7 +1088,7 @@ export default function Dashboard() {
         const addr = accounts?.[0] || "";
         accountRef.current = addr;
         setAccount(addr);
-    
+
         if (!addr) {
           setChainId(null);
           setCubeBal("-");
@@ -939,10 +1096,10 @@ export default function Dashboard() {
           setEonBal("-");
           return;
         }
-    
+
         const walletChainId = await getWalletChainId();
         setChainId(walletChainId);
-    
+
         if (walletChainId !== MAINNET_CHAIN_ID) {
           setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
           setCubeBal("-");
@@ -950,8 +1107,8 @@ export default function Dashboard() {
           setEonBal("-");
           return;
         }
-    
-        await refreshRead(null, addr);
+
+        await refreshRead(addr);
       } catch (e) {
         setStatus(e?.message || "Account update failed");
       }
@@ -1309,11 +1466,6 @@ export default function Dashboard() {
         >
           Status: {status}
         </div>
-
-        {/* hidden debug */}
-        {/* <div style={{ opacity: 0.2, fontSize: 10 }}>
-          totalMinted(hidden): {totalMinted} • controller(hidden): {controllerAddr}
-        </div> */}
       </div>
     </div>
   );
