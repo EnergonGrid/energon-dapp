@@ -43,6 +43,16 @@ const ERC20_ABI = [
   "function decimals() view returns (uint8)",
 ];
 
+async function getWalletChainId() {
+  if (typeof window === "undefined" || !window.ethereum) return null;
+  const hex = await window.ethereum.request({ method: "eth_chainId" });
+  return parseInt(hex, 16);
+}
+
+function toUnpaddedHexChainId(id) {
+  return `0x${Number(id).toString(16)}`;
+}
+
 function clampPct(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return 0;
@@ -189,7 +199,9 @@ export default function Dashboard() {
     return roProviderRef.current;
   }
 
-  const chainOk = Number(chainId) === MAINNET_CHAIN_ID;
+  const walletConnected = !!account;
+  const chainOk =
+    walletConnected && Number(chainId) === MAINNET_CHAIN_ID;
 
   const shortAddr = (a) =>
     a ? `${a.slice(0, 6)}…${a.slice(a.length - 4)}` : "-";
@@ -250,17 +262,14 @@ export default function Dashboard() {
         rgba(255,161,77,${0.12 + pct / 220 + flashBoost * 0.35}) 30%,
         rgba(255,95,45,${0.08 + pct / 250 + flashBoost * 0.22}) 58%,
         rgba(255,255,255,0.02) 100%)`,
-      border: `1px solid rgba(255,181,110,${
-        0.26 + pct / 280 + flashBoost * 0.2
-      })`,
+      border: `1px solid rgba(255,181,110,${0.26 + pct / 280 + flashBoost * 0.2
+        })`,
       boxShadow: `
         0 18px 34px rgba(0,0,0,0.30),
-        0 0 ${24 + pct * 0.35 + (flashOn ? 22 : 0)}px rgba(255,173,88,${
-        0.16 + flashBoost * 0.25
-      }),
-        inset 0 0 ${20 + pct * 0.15 + (flashOn ? 12 : 0)}px rgba(255,189,100,${
-        0.09 + flashBoost * 0.18
-      })
+        0 0 ${24 + pct * 0.35 + (flashOn ? 22 : 0)}px rgba(255,173,88,${0.16 + flashBoost * 0.25
+        }),
+        inset 0 0 ${20 + pct * 0.15 + (flashOn ? 12 : 0)}px rgba(255,189,100,${0.09 + flashBoost * 0.18
+        })
       `,
     };
   }, [burnProgressPctValue, burnBlinkCount]);
@@ -273,9 +282,8 @@ export default function Dashboard() {
       color: flashOn ? "rgba(255,245,214,0.98)" : "rgba(255,234,176,0.98)",
       textShadow: flashOn
         ? "0 0 12px rgba(255,230,170,0.72), 0 0 26px rgba(255,160,70,0.58), 0 0 44px rgba(255,110,40,0.36)"
-        : `0 0 ${10 + pct * 0.14}px rgba(255,225,150,0.46), 0 0 ${
-            22 + pct * 0.18
-          }px rgba(255,150,60,0.24)`,
+        : `0 0 ${10 + pct * 0.14}px rgba(255,225,150,0.46), 0 0 ${22 + pct * 0.18
+        }px rgba(255,150,60,0.24)`,
       filter: "brightness(1.08)",
     };
   }, [burnProgressPctValue, burnBlinkCount]);
@@ -365,7 +373,7 @@ export default function Dashboard() {
   function clearPendingTickTx() {
     try {
       localStorage.removeItem(TICK_PENDING_KEY);
-    } catch {}
+    } catch { }
     setPendingTickTx("");
   }
 
@@ -484,14 +492,19 @@ export default function Dashboard() {
 
   async function switchToMainnet() {
     if (!window.ethereum) return setStatus("MetaMask not found");
-
+  
+    const flareHex = toUnpaddedHexChainId(MAINNET_CHAIN_ID); // 0xe
     const rpcUrlForWallet = rpcList[0] || RPCS?.[MAINNET_CHAIN_ID];
-
+  
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: MAINNET_HEX }],
+        params: [{ chainId: flareHex }],
       });
+  
+      const walletChainId = await getWalletChainId();
+      setChainId(walletChainId);
+  
       setStatus("Switched to Flare Mainnet ✅");
       await refreshRead(null, accountRef.current);
     } catch (err) {
@@ -501,13 +514,22 @@ export default function Dashboard() {
             method: "wallet_addEthereumChain",
             params: [
               {
-                chainId: MAINNET_HEX,
+                chainId: flareHex,
                 chainName: NETWORK_NAME,
-                nativeCurrency: { name: "Flare", symbol: "FLR", decimals: 18 },
+                nativeCurrency: {
+                  name: "Flare",
+                  symbol: "FLR",
+                  decimals: 18,
+                },
                 rpcUrls: [rpcUrlForWallet],
+                blockExplorerUrls: ["https://flarescan.com"],
               },
             ],
           });
+  
+          const walletChainId = await getWalletChainId();
+          setChainId(walletChainId);
+  
           setStatus("Added + switched to Flare Mainnet ✅");
           await refreshRead(null, accountRef.current);
         } catch (e2) {
@@ -521,24 +543,26 @@ export default function Dashboard() {
 
   async function connectWallet() {
     if (!window.ethereum) return setStatus("MetaMask not found");
-
+  
     try {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
-      const net = await browserProvider.getNetwork();
-      setChainId(Number(net.chainId));
-
-      if (Number(net.chainId) !== MAINNET_CHAIN_ID) {
-        setStatus(`Wrong network. Click "Switch to ${NETWORK_NAME}".`);
-        return;
-      }
-
+  
       const accounts = await browserProvider.send("eth_requestAccounts", []);
       const addr = accounts?.[0] || "";
-
+  
+      const walletChainId = await getWalletChainId();
+      setChainId(walletChainId);
+  
       accountRef.current = addr;
       setAccount(addr);
+  
+      if (walletChainId !== MAINNET_CHAIN_ID) {
+        setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
+        return;
+      }
+  
       setStatus("Connected ✅");
-      await refreshRead(browserProvider, addr);
+      await refreshRead(null, addr);
     } catch (e) {
       setStatus(e?.message || "Connect failed");
     }
@@ -549,7 +573,9 @@ export default function Dashboard() {
     refreshInFlightRef.current = true;
 
     try {
-      const providerToUse = optionalProvider || getRoProvider();
+      // Dashboard reads always come from public RPC.
+      // Wallet / BrowserProvider is used only for signing transactions.
+      const providerToUse = getRoProvider();
       if (!providerToUse) return;
 
       const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, providerToUse);
@@ -676,19 +702,17 @@ export default function Dashboard() {
         setEligibleText("-");
         setEonBal("-");
       }
-
-      if (window.ethereum) {
-        try {
-          const bp =
-            optionalProvider || new ethers.BrowserProvider(window.ethereum);
-          const n = await bp.getNetwork();
-          setChainId(Number(n.chainId));
-        } catch (e) {
-          console.warn("wallet network read failed; keeping last chain value", e);
-        }
-      }
+      
     } catch (e) {
-      console.warn("Dashboard refresh failed; keeping last known values", e);
+      console.warn("Dashboard refresh failed; switching RPC", e);
+
+      if (rpcList.length > 1) {
+        roRpcIndexRef.current =
+          (roRpcIndexRef.current + 1) % rpcList.length;
+
+        roProviderRef.current = null;
+      }
+
       setStatus("Read delayed. Keeping last known values.");
     } finally {
       refreshInFlightRef.current = false;
@@ -751,7 +775,7 @@ export default function Dashboard() {
       clearBackoff();
       setStatus("Tick confirmed ✅");
 
-      await refreshRead(browserProvider, accountRef.current);
+      await refreshRead(null, accountRef.current);
     } catch (e) {
       const msg = e?.shortMessage || e?.message || "Tick failed";
 
@@ -822,7 +846,7 @@ export default function Dashboard() {
         clearPendingTickTx();
         clearBackoff();
         setStatus("Auto-tick confirmed ✅");
-        await refreshRead(browserProvider, acct);
+        await refreshRead(null, acct);
       } catch (e) {
         const msg = e?.shortMessage || e?.message || "Auto-tick failed";
 
@@ -883,12 +907,20 @@ export default function Dashboard() {
   useEffect(() => {
     if (!window.ethereum) return;
 
-    const onChainChanged = async () => {
+    const onChainChanged = async (chainIdHex) => {
       try {
-        const browserProvider = new ethers.BrowserProvider(window.ethereum);
-        const net = await browserProvider.getNetwork();
-        setChainId(Number(net.chainId));
-        await refreshRead(browserProvider, accountRef.current);
+        const walletChainId = parseInt(chainIdHex, 16);
+        setChainId(walletChainId);
+    
+        if (walletChainId !== MAINNET_CHAIN_ID) {
+          setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
+          setCubeBal("-");
+          setEligibleText("-");
+          setEonBal("-");
+          return;
+        }
+    
+        await refreshRead(null, accountRef.current);
       } catch (e) {
         setStatus(e?.message || "Chain update failed");
       }
@@ -899,9 +931,27 @@ export default function Dashboard() {
         const addr = accounts?.[0] || "";
         accountRef.current = addr;
         setAccount(addr);
-
-        const browserProvider = new ethers.BrowserProvider(window.ethereum);
-        await refreshRead(browserProvider, addr);
+    
+        if (!addr) {
+          setChainId(null);
+          setCubeBal("-");
+          setEligibleText("-");
+          setEonBal("-");
+          return;
+        }
+    
+        const walletChainId = await getWalletChainId();
+        setChainId(walletChainId);
+    
+        if (walletChainId !== MAINNET_CHAIN_ID) {
+          setStatus(`Wrong network. Switch to ${NETWORK_NAME}.`);
+          setCubeBal("-");
+          setEligibleText("-");
+          setEonBal("-");
+          return;
+        }
+    
+        await refreshRead(null, addr);
       } catch (e) {
         setStatus(e?.message || "Account update failed");
       }
@@ -1047,12 +1097,12 @@ export default function Dashboard() {
               ...(buttonBaseStyle || {}),
               opacity:
                 !account ||
-                !chainOk ||
-                pendingTickTx ||
-                !tickAllowed ||
-                isTicking ||
-                cooldownLeft > 0 ||
-                alreadyTickedThisHeight(energonHeight)
+                  !chainOk ||
+                  pendingTickTx ||
+                  !tickAllowed ||
+                  isTicking ||
+                  cooldownLeft > 0 ||
+                  alreadyTickedThisHeight(energonHeight)
                   ? 0.55
                   : 1,
             }}
@@ -1071,12 +1121,12 @@ export default function Dashboard() {
             {pendingTickTx
               ? "Tick Pending…"
               : isTicking
-              ? "Ticking…"
-              : cooldownLeft > 0
-              ? `Cooldown ${cooldownLeft}s`
-              : alreadyTickedThisHeight(energonHeight)
-              ? "Waiting…"
-              : "Manual Tick"}
+                ? "Ticking…"
+                : cooldownLeft > 0
+                  ? `Cooldown ${cooldownLeft}s`
+                  : alreadyTickedThisHeight(energonHeight)
+                    ? "Waiting…"
+                    : "Manual Tick"}
           </button>
         </div>
 
@@ -1099,11 +1149,18 @@ export default function Dashboard() {
           )}
 
           {tile(
-            "Chain ID",
-            chainOk ? `14 (OK ✅)` : `${chainId || "-"} (Wrong ❌)`,
+            "Network",
+            !walletConnected
+              ? `Wallet Not Connected\nNetwork: -`
+              : chainOk
+                ? `Flare Mainnet ✅\nChain ID: 14`
+                : `Wrong Network ❌\nChain ID: ${chainId || "-"}`,
             null,
             null,
-            isMobile ? styles.tileValueMobile : null
+            {
+              whiteSpace: "pre-line",
+              ...(isMobile ? styles.tileValueMobile : {}),
+            }
           )}
 
           <div
