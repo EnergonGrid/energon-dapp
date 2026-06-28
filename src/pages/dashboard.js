@@ -424,7 +424,9 @@ export default function Dashboard() {
   function clearPendingTickTx() {
     try {
       localStorage.removeItem(TICK_PENDING_KEY);
-    } catch { }
+      localStorage.removeItem(TICK_LOCK_KEY);
+    } catch {}
+  
     setPendingTickTx("");
   }
 
@@ -677,7 +679,7 @@ export default function Dashboard() {
         controllerResult.value !== ethers.ZeroAddress
       ) {
         ctrl = controllerResult.value;
-      
+
         try {
           assertLockedContractAddresses(ctrl);
           setControllerAddr(ctrl);
@@ -882,8 +884,7 @@ export default function Dashboard() {
       setStatus("Submitting tick…");
 
       lockTickForAllTabs(45);
-      setCooldown(20);
-      markTickHeight(energonHeight);
+      setCooldown(45);
 
       const ctrl = await readControllerAddressPublic();
 
@@ -911,6 +912,7 @@ export default function Dashboard() {
 
       await tx.wait();
 
+      markTickHeight(energonHeight);
       clearPendingTickTx();
       clearBackoff();
       setStatus("Tick confirmed ✅");
@@ -919,14 +921,15 @@ export default function Dashboard() {
     } catch (e) {
       const msg = e?.shortMessage || e?.message || "Tick failed";
 
-      if (submittedHash) {
+      try {
+        localStorage.removeItem(TICK_LOCK_KEY);
+      } catch { }
+
+      clearPendingTickTx();
+
+      if (submittedHash && e?.receipt?.status !== 0) {
         setStatus(`Tick submitted. Waiting for chain confirmation: ${submittedHash}`);
       } else {
-        try {
-          localStorage.removeItem(TICK_LOCK_KEY);
-        } catch {}
-      
-        clearPendingTickTx();
         setStatus(msg);
         bumpBackoff();
       }
@@ -968,8 +971,7 @@ export default function Dashboard() {
         setStatus("Auto-tick: submitting…");
 
         lockTickForAllTabs(45);
-        setCooldown(20);
-        markTickHeight(energonHeight);
+        setCooldown(45);
 
         const ctrl = await readControllerAddressPublic();
 
@@ -996,6 +998,8 @@ export default function Dashboard() {
 
         await tx.wait();
 
+        markTickHeight(energonHeight);
+
         clearPendingTickTx();
         clearBackoff();
         setStatus("Auto-tick confirmed ✅");
@@ -1003,14 +1007,15 @@ export default function Dashboard() {
       } catch (e) {
         const msg = e?.shortMessage || e?.message || "Auto-tick failed";
 
-        if (submittedHash) {
+        try {
+          localStorage.removeItem(TICK_LOCK_KEY);
+        } catch { }
+
+        clearPendingTickTx();
+
+        if (submittedHash && e?.receipt?.status !== 0) {
           setStatus(`Auto-tick submitted. Waiting for chain confirmation: ${submittedHash}`);
         } else {
-          try {
-            localStorage.removeItem(TICK_LOCK_KEY);
-          } catch {}
-        
-          clearPendingTickTx();
           setStatus(msg);
           bumpBackoff();
         }
