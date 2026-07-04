@@ -27,6 +27,11 @@ function padUint(value) {
   return BigInt(value).toString(16).padStart(64, "0");
 }
 
+function decodeAddress(hex) {
+  if (!hex || hex === "0x") return "";
+  return "0x" + hex.slice(-40).toLowerCase();
+}
+
 async function rpcCall(to, data) {
   const rpcUrl = process.env.FLARE_RPC || process.env.FLR_RPC;
 
@@ -58,10 +63,10 @@ async function cubeBalanceOf(wallet) {
   return BigInt(result);
 }
 
-async function tokenOfOwnerByIndex(wallet, index = 0) {
-  const data = "0x2f745c59" + padAddress(wallet) + padUint(index);
+async function ownerOf(cubeId) {
+  const data = "0x6352211e" + padUint(cubeId);
   const result = await rpcCall(CUBE_ADDRESS, data);
-  return BigInt(result).toString();
+  return decodeAddress(result);
 }
 
 export default async function handler(req, res) {
@@ -89,6 +94,7 @@ export default async function handler(req, res) {
 
     const {
       wallet,
+      cubeId,
       guardianName,
       recordText,
       publicPermission,
@@ -97,6 +103,22 @@ export default async function handler(req, res) {
 
     if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
       return res.status(400).json({ error: "Invalid wallet." });
+    }
+
+    const cleanCubeId = String(cubeId || "").trim();
+
+    if (!/^[0-9]+$/.test(cleanCubeId)) {
+      return res.status(400).json({
+        error: "EnergonCube number required.",
+      });
+    }
+
+    const cubeNumber = BigInt(cleanCubeId);
+
+    if (cubeNumber < 1n || cubeNumber > 1000000n) {
+      return res.status(400).json({
+        error: "Invalid EnergonCube number.",
+      });
     }
 
     const cleanRecord = String(recordText || "").trim();
@@ -123,12 +145,12 @@ export default async function handler(req, res) {
       });
     }
 
-    let cubeId = "";
+    const cubeOwner = await ownerOf(cubeNumber);
 
-    try {
-      cubeId = await tokenOfOwnerByIndex(wallet, 0);
-    } catch {
-      cubeId = "";
+    if (cubeOwner.toLowerCase() !== wallet.toLowerCase()) {
+      return res.status(403).json({
+        error: "Entered EnergonCube is not held by this wallet.",
+      });
     }
 
     const supabaseRes = await fetch(`${supabaseUrl}/rest/v1/guardian_records`, {
@@ -141,7 +163,7 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         wallet: wallet.toLowerCase(),
-        cube_id: cubeId ? Number(cubeId) : null,
+        cube_id: Number(cubeNumber),
         cube_balance: Number(balance),
         guardian_name: cleanName || null,
         record_text: cleanRecord,
@@ -161,7 +183,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       ok: true,
       message: "Guardian Record received.",
-      cubeId,
+      cubeId: cleanCubeId,
       record: saved?.[0] || null,
     });
   } catch (err) {
