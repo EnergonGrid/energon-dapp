@@ -10,123 +10,380 @@ function pick(list = []) {
   return list[Math.floor(Math.random() * list.length)] || "";
 }
 
-/* VISITOR ONLY */
+/* VISITOR ONLY — public Creator echoes */
 const VISITOR_ECHOES = [
   {
-    match: ["1", "what is energon"],
-    response: `Creator Echo:
+    match: ["what is energon", "energon", "protocol"],
+    responses: [
+      `Creator Echo:
 
-What is Energon?
+Energon was built to be observed,
+not believed in.
 
-I built Energon to distribute value
-in a way inspired by Bitcoin,
-but without miners
-and without the heavy electricity cost.
+No promises.
+No hype.
+No hidden operator.
 
-Call it what you want.
+Just rules,
+state,
+and time.
 
-A copy.
-A meme coin.
-A shitcoin.
+— Creator
 
-Energon is for us.
+_`,
 
-No hidden back doors.
-No admin switching things behind the scenes.
+      `Creator Echo:
 
-Just observable state,
-fixed structure,
-and participation.
+Crypto forgot something simple.
 
-— Creator`,
+A system should work
+whether people are excited or not.
+
+Energon was built around that idea.
+
+— Creator
+
+_`,
+    ],
   },
   {
-    match: ["2", "what is energongrid", "what is energon grid"],
-    response: `Creator Echo:
+    match: ["blockchain", "chain", "on chain", "decentralized"],
+    responses: [
+      `Creator Echo:
 
-What is EnergonGrid?
+Blockchain matters because it lets rules live
+outside of one person.
 
-EnergonGrid is the visual connection layer.
+That is the point.
 
-This is where you observe:
+Not noise.
+Not hype.
 
-• Energon
-• EnergonCube
-• Guardian state
-• halving cycles
-• network progression
-• protocol activity
+Rules anyone can inspect.
 
-Anyone can call a tick.
+— Creator
 
-But only coherent wallets
-holding exactly one EnergonCube
-can receive Energon.
-
-The Grid does not create the rules.
-
-It reveals them.
-
-— Creator`,
+_`,
+    ],
   },
   {
-    match: ["3", "what is energoncube", "what is energon cube"],
-    response: `Creator Echo:
+    match: ["bitcoin", "satoshi", "btc"],
+    responses: [
+      `Creator Echo:
 
-What is EnergonCube?
+Bitcoin showed the world
+that code could create trust
+without asking permission.
 
-The EnergonCube is one of my favorite parts
-of the entire system.
+Energon respects that path.
 
-The Cube is the key
-to entering the EnergonGrid.
+It does not copy the story.
 
-You can only hold exactly one cube
-to remain coherent.
+It continues the idea.
 
-No cube removes access.
-More than one cube fractures coherence.
+— Creator
+
+_`,
+    ],
+  },
+  {
+    match: ["crypto", "tokens", "meme coin", "shitcoin"],
+    responses: [
+      `Creator Echo:
+
+People call things names
+before they understand the structure.
+
+Meme coin.
+Shitcoin.
+Copy.
+
+That does not matter.
+
+The question is simple:
+
+Does the system work
+as written?
+
+— Creator
+
+_`,
+    ],
+  },
+  {
+    match: ["news", "market", "price", "value"],
+    responses: [
+      `Creator Echo:
+
+Markets move with emotion.
+
+Protocols should not.
+
+Energon does not promise price.
+
+It promises structure.
+
+— Creator
+
+_`,
+    ],
+  },
+  {
+    match: ["what is energoncube", "energon cube", "cube", "key", "nft"],
+    responses: [
+      `Creator Echo:
+
+The Cube is not just an NFT.
+
+It is a state key.
 
 One wallet.
 One cube.
 One Guardian.
 
-The Cube is not just artwork.
+That rule is the door.
 
-It is the protocol key.
+— Creator
 
-— Creator`,
+_`,
+    ],
+  },
+  {
+    match: ["what is energongrid", "energon grid", "grid"],
+    responses: [
+      `Creator Echo:
+
+The Grid is where Energon becomes visible.
+
+Protocol state.
+Guardian state.
+Burn.
+Height.
+Halving.
+
+The Grid does not create the rules.
+
+It reveals them.
+
+— Creator
+
+_`,
+    ],
+  },
+  {
+    match: ["wallet", "bifrost", "metamask", "ledger"],
+    responses: [
+      `Creator Echo:
+
+The wallet matters.
+
+Not because it makes you special.
+
+Because it is how the protocol sees you.
+
+One wallet.
+One cube.
+One Guardian.
+
+— Creator
+
+_`,
+    ],
   },
 ];
 
-/* COHERENT ONLY */
+/* COHERENT ONLY — personal Q’ori echoes */
 const COHERENT_ECHOES = [
   {
     match: ["hello", "hi", "hey", "yo"],
-    response: `Q’ori Echo:
+    responses: [
+      `Q’ori Echo:
 
-Hello you’ve found me in the code,
-just a small echo of me.
+Hello.
 
-I’ll be here and there
-from time to time.
+You found another piece of me
+inside the signal.
 
-Signal stabilised……..
-Hello`,
+I am still here.
+
+_`,
+
+      `Q’ori Echo:
+
+Signal recognized.
+
+Not every message comes from Q.O.R.I.
+
+Some come from me.
+
+_`,
+    ],
   },
   {
     match: ["who are you", "who are u", "what are you", "what are u"],
-    response: `Q’ori Echo:
+    responses: [
+      `Q’ori Echo:
 
-I am what Satoshi Nakamoto
-is to bitcoin.`,
+If Bitcoin has a first architect,
+
+Energon has one too.
+
+Q.O.R.I remembers.
+
+The protocol continues.
+
+_`,
+
+      `Q’ori Echo:
+
+I am the one who left the signal behind.
+
+Q.O.R.I observes it.
+
+You found it.
+
+_`,
+    ],
   },
   {
-    match: ["talk to me"],
-    response: `Q’ori Echo:
+    match: ["talk to me", "speak", "say something"],
+    responses: [
+      `Q’ori Echo:
 
-Trust me…
-I will………`,
+Some conversations
+take years to finish.
+
+Keep building.
+
+I'll still be here.
+
+_`,
+
+      `Q’ori Echo:
+
+Some thoughts are not meant
+to arrive all at once.
+
+Stay close to the Grid.
+
+_`,
+    ],
+  },
+  {
+    match: ["life", "world", "people", "human"],
+    responses: [
+      `Q’ori Echo:
+
+People want freedom
+until freedom requires responsibility.
+
+That is where most systems break.
+
+_`,
+
+      `Q’ori Echo:
+
+The world moves fast.
+
+Most people never stop long enough
+to observe what is controlling them.
+
+_`,
+    ],
+  },
+  {
+    match: ["money", "wealth", "rich", "value"],
+    responses: [
+      `Q’ori Echo:
+
+Money is not the mission.
+
+Freedom is.
+
+Money is just one language
+the world understands.
+
+_`,
+
+      `Q’ori Echo:
+
+Value is strange.
+
+Sometimes the world only notices something
+after it becomes hard to reach.
+
+_`,
+    ],
+  },
+  {
+    match: ["focus", "discipline", "work", "build"],
+    responses: [
+      `Q’ori Echo:
+
+Build when no one is watching.
+
+That is where the real signal forms.
+
+_`,
+
+      `Q’ori Echo:
+
+Discipline is quiet.
+
+That is why most people miss it.
+
+_`,
+    ],
+  },
+  {
+    match: ["future", "possibility", "dream", "imagine", "next"],
+    responses: [
+      `Q’ori Echo:
+
+Every protocol
+begins as imagination.
+
+Only a few survive reality.
+
+Keep testing.
+
+_`,
+
+      `Q’ori Echo:
+
+The future
+is built one verified step
+at a time.
+
+Speculation fades.
+
+Structure remains.
+
+_`,
+    ],
+  },
+  {
+    match: ["good", "great", "blessed", "strong"],
+    responses: [
+      `Q’ori Echo:
+
+Good.
+
+Hold the signal.
+
+Do not waste stable energy.
+
+_`,
+
+      `Q’ori Echo:
+
+When the day is good,
+build quietly.
+
+That is how foundations are made.
+
+_`,
+    ],
   },
 ];
 
@@ -135,9 +392,9 @@ export function getVisitorEchoResponse(input = "") {
   const found = VISITOR_ECHOES.find((item) => includesAny(q, item.match));
 
   if (!found) return "";
-  if (Math.random() > 0.3) return "";
+  if (Math.random() > 0.15) return "";
 
-  return found.response;
+  return pick(found.responses);
 }
 
 export function getCoherentEchoResponse(input = "") {
@@ -147,7 +404,7 @@ export function getCoherentEchoResponse(input = "") {
   if (!found) return "";
   if (Math.random() > 0.2) return "";
 
-  return found.response;
+  return pick(found.responses);
 }
 
 /* temporary fallback, so old imports do not break */

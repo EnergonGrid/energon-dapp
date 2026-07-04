@@ -42,7 +42,8 @@ export function getVisitorMenu() {
 5. Read Whitepaper
 6. Read EMP
 7. Open Mint Site
-8. Closing Thought
+8. Guardian Chronicle
+9. Closing Thought
 
 Ask directly.`;
 }
@@ -173,7 +174,39 @@ Entry requires a key.`,
   },
 
   {
-    keys: ["8", "closing thought", "final thought"],
+    keys: [
+      "8",
+      "guardian chronicle",
+      "chronicle",
+      "first guardian",
+      "guardian story",
+    ],
+    exact: true,
+    responses: [
+      `GUARDIAN CHRONICLE
+
+The Guardian Chronicle records the story layer of Energon.
+
+It begins with the First Guardian.
+
+Before coherence became visible,
+before the Grid was understood,
+there was only signal,
+state,
+and the first key.
+
+The Chronicle is not required to use the protocol.
+
+It exists to preserve origin.
+
+One wallet.
+One cube.
+One Guardian.`,
+    ],
+  },
+
+  {
+    keys: ["9", "closing thought", "final thought"],
     exact: true,
     responses: [
       `CLOSING THOUGHT
@@ -357,11 +390,23 @@ One Guardian.`,
   },
 ];
 
-export function getQoriResponse(input = "") {
+export function getQoriResponse(input = "", options = {}) {
   const q = normalize(input);
+  const mode = options.mode || "visitor";
 
   if (!q) {
-    return getVisitorMenu();
+    return mode === "visitor"
+      ? getVisitorMenu()
+      : `Q.O.R.I is listening.
+
+Ask directly.
+
+Try asking:
+
+Give me a protocol reading.
+What changed since last observation?
+What does my Guardian state mean?
+How is the Grid?`;
   }
 
   for (const item of KNOWLEDGE) {
@@ -371,16 +416,30 @@ export function getQoriResponse(input = "") {
 
     if (matched) {
       const response = pick(item.responses);
-
-      return typeof response === "function"
-        ? response()
-        : response;
+      return typeof response === "function" ? response() : response;
     }
   }
 
+  if (mode === "coherent") {
+    return `Signal received.
+  
+  Q.O.R.I does not have a clean interpretation for that yet.
+  
+  Try asking:
+  
+  Give me a protocol reading.
+  What changed since last observation?
+  What does my Guardian state mean?
+  How is the Grid?
+  
+  _`;
+  }
+  
   return `Signal received.
-
-Q.O.R.I does not yet have a clean answer for that.
-
-${getVisitorMenu()}`;
-}
+  
+  Q.O.R.I does not yet have a clean answer for that.
+  
+  ${getVisitorMenu()}
+  
+  _`;
+  }

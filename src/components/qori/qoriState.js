@@ -94,9 +94,7 @@ function getProtocolEra() {
 
   if (now <= genesis) return PROTOCOL_ERAS[0];
 
-  const yearsElapsed =
-    (now - genesis) / (1000 * 60 * 60 * 24 * 365.25);
-
+  const yearsElapsed = (now - genesis) / (1000 * 60 * 60 * 24 * 365.25);
   const eraIndex = Math.floor(yearsElapsed / 4);
 
   return PROTOCOL_ERAS[Math.min(eraIndex, PROTOCOL_ERAS.length - 1)];
@@ -117,10 +115,22 @@ function formatCountdown(seconds) {
   const days = Math.floor(s / 86400);
   const hours = Math.floor((s % 86400) / 3600);
   const minutes = Math.floor((s % 3600) / 60);
+  const secs = Math.floor(s % 60);
 
   if (days > 0) return `${days}d ${hours}h ${minutes}m`;
   if (hours > 0) return `${hours}h ${minutes}m`;
-  return `${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function formatNumber(value) {
+  try {
+    const n = Number(String(value || "0").replace(/,/g, ""));
+    if (!Number.isFinite(n)) return String(value || "UNKNOWN");
+    return n.toLocaleString();
+  } catch {
+    return String(value || "UNKNOWN");
+  }
 }
 
 function getRpcUrl() {
@@ -130,6 +140,22 @@ function getRpcUrl() {
   if (typeof v === "string") return v;
 
   return "";
+}
+
+function createBaseCtx() {
+  return {
+    walletConnected: false,
+    walletAddress: "",
+    guardianState: "NO KEY",
+    cubeBalance: "-",
+    energonHeight: "UNKNOWN",
+    tickState: "UNKNOWN",
+    burnState: "UNKNOWN",
+    halvingState: "ACTIVE CYCLE",
+    nextHalvingDate: "",
+    halvingCountdown: "",
+    protocolEra: getProtocolEra(),
+  };
 }
 
 export function getStateVisuals(state = "UNKNOWN", silent = false) {
@@ -153,10 +179,10 @@ export function getStateVisuals(state = "UNKNOWN", silent = false) {
 
   if (state === "VISITOR") {
     return {
-      color: "#ffcf6b",
-      border: "1px solid rgba(255,207,107,0.34)",
+      color: "#1ec8ff",
+      border: "1px solid rgba(30,200,255,0.45)",
       shadow:
-        "0 0 12px rgba(255,207,107,0.55), 0 0 28px rgba(255,207,107,0.18)",
+        "0 0 12px rgba(30,200,255,0.75), 0 0 28px rgba(30,200,255,0.25)",
     };
   }
 
@@ -170,49 +196,101 @@ export function getStateVisuals(state = "UNKNOWN", silent = false) {
 }
 
 export function getVisitorObservation() {
-  return `Q.O.R.I observes from the public gate.
+  return `VISITOR Q.O.R.I
+
+Public interface active.
+
+This version of Q.O.R.I is a teacher and guide.
+
+It explains:
+
+• Energon
+• EnergonGrid
+• EnergonCube
+• wallet setup
+• Whitepaper
+• EMP
+• Mint access
+• Guardian Chronicle
 
 No wallet state is required here.
 
 Energon begins with understanding.
 Guardian access begins with one EnergonCube.
 
-No cube means NO KEY.
-One cube means COHERENT.
-More than one cube means FRACTURED.
-
 The Grid is visible.
 Entry requires a key.`;
 }
 
 export function getSystemObservation(ctx = {}) {
-  return `SYSTEM OBSERVATION:
+  if (ctx.walletConnected && ctx.cubeBalance === "1" && ctx.guardianState === "COHERENT") {
+    return `SYSTEM OBSERVATION
 
-State: ${ctx.guardianState || "UNKNOWN"}
-Cube Balance: ${ctx.cubeBalance || "-"}
-Energon Height: ${ctx.energonHeight || "UNKNOWN"}
-Tick State: ${ctx.tickState || "UNKNOWN"}
-Burn State: ${ctx.burnState || "UNKNOWN"}
-Halving State: ${ctx.halvingState || "UNKNOWN"}
-Era: ${ctx.protocolEra || getProtocolEra()}
+Guardian coherence confirmed.
+
+One EnergonCube detected.
+
+Energon Height:
+${formatNumber(ctx.energonHeight || "UNKNOWN")}
+
+Next protocol advancement:
+${ctx.tickState || "UNKNOWN"}
+
+Burn Pool:
+${ctx.burnState || "UNKNOWN"}
+
+Current Era:
+${ctx.protocolEra || getProtocolEra()}
+
+The Grid remains stable.
+
+No protocol anomalies observed.
 
 Q.O.R.I observes.
-Q.O.R.I does not control.`;
+Q.O.R.I does not intervene.`;
+  }
+
+  if (ctx.walletConnected && ctx.guardianState === "FRACTURED") {
+    return `SYSTEM OBSERVATION
+
+FRACTURED STATE DETECTED.
+
+Cube Balance:
+${ctx.cubeBalance || "UNKNOWN"}
+
+Guardian coherence requires exactly one EnergonCube.
+
+One wallet.
+One cube.
+One Guardian.
+
+Q.O.R.I observes.
+Q.O.R.I does not intervene.`;
+  }
+
+  return `PUBLIC TERMINAL
+
+Guardian signal not coherent.
+
+Wallet Connected:
+${ctx.walletConnected ? "YES" : "NO"}
+
+Cube Balance:
+${ctx.cubeBalance || "-"}
+
+Current State:
+${ctx.guardianState || "NO KEY"}
+
+Coherent Q.O.R.I requires:
+
+Wallet connected.
+Exactly one EnergonCube.
+
+Q.O.R.I remains in public guidance mode.`;
 }
 
 export async function readQoriLiveState() {
-  const baseCtx = {
-    walletConnected: false,
-    guardianState: "NO KEY",
-    cubeBalance: "-",
-    energonHeight: "UNKNOWN",
-    tickState: "UNKNOWN",
-    burnState: "UNKNOWN",
-    halvingState: "ACTIVE CYCLE",
-    nextHalvingDate: "",
-    halvingCountdown: "",
-    protocolEra: getProtocolEra(),
-  };
+  const baseCtx = createBaseCtx();
 
   try {
     const rpcUrl = getRpcUrl();
@@ -241,7 +319,7 @@ export async function readQoriLiveState() {
       try {
         const sec = await controller.secondsUntilNextEnergonBlock();
         const n = Number(sec.toString());
-        baseCtx.tickState = n === 0 ? "TICK ALLOWED" : `${n}s`;
+        baseCtx.tickState = n === 0 ? "TICK ALLOWED" : formatCountdown(n);
       } catch {}
 
       try {
@@ -253,7 +331,7 @@ export async function readQoriLiveState() {
           { maximumFractionDigits: 2 }
         );
 
-        baseCtx.burnState = `${cleanRemaining} EON remaining`;
+        baseCtx.burnState = `${cleanRemaining} EON Remaining`;
       } catch {}
 
       try {
@@ -282,7 +360,9 @@ export async function readQoriLiveState() {
       accounts = await window.ethereum.request({
         method: "eth_accounts",
       });
-    } catch {}
+    } catch {
+      return baseCtx;
+    }
 
     const addr = accounts?.[0] || "";
 
@@ -291,6 +371,7 @@ export async function readQoriLiveState() {
     }
 
     baseCtx.walletConnected = true;
+    baseCtx.walletAddress = addr;
 
     try {
       const bal = await cube.balanceOf(addr);
@@ -306,16 +387,20 @@ export async function readQoriLiveState() {
         baseCtx.guardianState = "NO KEY";
       }
     } catch {
-      baseCtx.guardianState = "UNKNOWN";
+      baseCtx.guardianState = "NO KEY";
+      baseCtx.cubeBalance = "-";
+    }
+
+    if (!baseCtx.walletConnected || baseCtx.cubeBalance !== "1") {
+      if (baseCtx.guardianState === "COHERENT") {
+        baseCtx.guardianState = "NO KEY";
+      }
     }
 
     baseCtx.protocolEra = getProtocolEra();
 
     return baseCtx;
   } catch {
-    return {
-      ...baseCtx,
-      protocolEra: getProtocolEra(),
-    };
+    return createBaseCtx();
   }
 }
