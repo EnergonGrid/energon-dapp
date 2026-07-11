@@ -35,11 +35,15 @@ function decodeAddress(hex) {
 async function rpcCall(to, data) {
   const rpcUrl = process.env.FLARE_RPC || process.env.FLR_RPC;
 
-  if (!rpcUrl) throw new Error("Missing FLARE_RPC environment variable.");
+  if (!rpcUrl) {
+    throw new Error("Missing FLARE_RPC environment variable.");
+  }
 
   const res = await fetch(rpcUrl, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+    },
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
@@ -50,9 +54,17 @@ async function rpcCall(to, data) {
 
   const json = await res.json();
 
-  if (!res.ok) throw new Error(`RPC request failed: ${res.status}`);
-  if (json.error) throw new Error(json.error.message || "RPC error");
-  if (!json.result) throw new Error("RPC returned no result.");
+  if (!res.ok) {
+    throw new Error(`RPC request failed: ${res.status}`);
+  }
+
+  if (json.error) {
+    throw new Error(json.error.message || "RPC error");
+  }
+
+  if (!json.result) {
+    throw new Error("RPC returned no result.");
+  }
 
   return json.result;
 }
@@ -60,12 +72,14 @@ async function rpcCall(to, data) {
 async function cubeBalanceOf(wallet) {
   const data = "0x70a08231" + padAddress(wallet);
   const result = await rpcCall(CUBE_ADDRESS, data);
+
   return BigInt(result);
 }
 
 async function ownerOf(cubeId) {
   const data = "0x6352211e" + padUint(cubeId);
   const result = await rpcCall(CUBE_ADDRESS, data);
+
   return decodeAddress(result);
 }
 
@@ -78,13 +92,17 @@ export default async function handler(req, res) {
 
   try {
     if (req.method !== "POST") {
-      return res.status(405).json({ error: "Method not allowed." });
+      return res.status(405).json({
+        error: "Method not allowed.",
+      });
     }
 
     const supabaseUrl =
-      process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+      process.env.SUPABASE_URL ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const serviceKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !serviceKey) {
       return res.status(500).json({
@@ -102,7 +120,9 @@ export default async function handler(req, res) {
     } = req.body || {};
 
     if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
-      return res.status(400).json({ error: "Invalid wallet." });
+      return res.status(400).json({
+        error: "Invalid wallet.",
+      });
     }
 
     const cleanCubeId = String(cubeId || "").trim();
@@ -125,15 +145,21 @@ export default async function handler(req, res) {
     const cleanName = String(guardianName || "").trim();
 
     if (cleanRecord.length < 3) {
-      return res.status(400).json({ error: "Guardian record required." });
+      return res.status(400).json({
+        error: "Guardian record required.",
+      });
     }
 
     if (cleanRecord.length > 1000) {
-      return res.status(400).json({ error: "Record too long." });
+      return res.status(400).json({
+        error: "Record too long.",
+      });
     }
 
     if (cleanName.length > 80) {
-      return res.status(400).json({ error: "Guardian name too long." });
+      return res.status(400).json({
+        error: "Guardian name too long.",
+      });
     }
 
     const balance = await cubeBalanceOf(wallet);
@@ -153,38 +179,62 @@ export default async function handler(req, res) {
       });
     }
 
-    const supabaseRes = await fetch(`${supabaseUrl}/rest/v1/guardian_records`, {
-      method: "POST",
-      headers: {
-        apikey: serviceKey,
-        authorization: `Bearer ${serviceKey}`,
-        "content-type": "application/json",
-        prefer: "return=representation",
-      },
-      body: JSON.stringify({
-        wallet: wallet.toLowerCase(),
-        cube_id: Number(cubeNumber),
-        cube_balance: Number(balance),
-        guardian_name: cleanName || null,
-        record_text: cleanRecord,
-        public_permission: !!publicPermission,
-        book_permission: !!bookPermission,
-        status: "submitted",
-      }),
-    });
+    const supabaseRes = await fetch(
+      `${supabaseUrl}/rest/v1/guardian_records`,
+      {
+        method: "POST",
+        headers: {
+          apikey: serviceKey,
+          authorization: `Bearer ${serviceKey}`,
+          "content-type": "application/json",
+          prefer: "return=representation",
+        },
+        body: JSON.stringify({
+          wallet: wallet.toLowerCase(),
+          cube_id: Number(cubeNumber),
+          cube_balance: Number(balance),
+          guardian_name: cleanName || null,
+          record_text: cleanRecord,
+          public_permission: Boolean(publicPermission),
+          book_permission: Boolean(bookPermission),
+          status: "submitted",
+        }),
+      }
+    );
 
     if (!supabaseRes.ok) {
       const text = await supabaseRes.text();
-      throw new Error(text || "Supabase insert failed.");
+
+      throw new Error(
+        text || "Supabase insert failed."
+      );
     }
 
-    const saved = await supabaseRes.json();
+    const savedRows = await supabaseRes.json();
+    const savedRecord = Array.isArray(savedRows)
+      ? savedRows[0]
+      : null;
+
+    if (!savedRecord) {
+      throw new Error(
+        "Supabase saved the request but did not return the inserted record."
+      );
+    }
+
+    if (
+      savedRecord.id === undefined ||
+      savedRecord.created_at === undefined
+    ) {
+      throw new Error(
+        "Supabase record is missing id or created_at."
+      );
+    }
 
     return res.status(200).json({
       ok: true,
       message: "Guardian Record received.",
       cubeId: cleanCubeId,
-      record: saved?.[0] || null,
+      record: savedRecord,
     });
   } catch (err) {
     console.error("guardian-chronicle error:", err);
