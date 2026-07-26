@@ -1,3 +1,5 @@
+import { neon } from "@neondatabase/serverless";
+
 const CUBE_ADDRESS =
   "0x30e1076bDf2B123B54486C2721125388af2d2061".toLowerCase();
 
@@ -5,6 +7,7 @@ const ALLOWED_ORIGINS = [
   "https://energon-site.vercel.app",
   "https://energon-dapp.vercel.app",
   "http://localhost:3000",
+  "http://localhost:8080",
 ];
 
 function setCors(req, res) {
@@ -39,7 +42,7 @@ async function rpcCall(to, data) {
     throw new Error("Missing FLARE_RPC environment variable.");
   }
 
-  const res = await fetch(rpcUrl, {
+  const rpcResponse = await fetch(rpcUrl, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -52,10 +55,10 @@ async function rpcCall(to, data) {
     }),
   });
 
-  const json = await res.json();
+  const json = await rpcResponse.json();
 
-  if (!res.ok) {
-    throw new Error(`RPC request failed: ${res.status}`);
+  if (!rpcResponse.ok) {
+    throw new Error(`RPC request failed: ${rpcResponse.status}`);
   }
 
   if (json.error) {
@@ -97,16 +100,9 @@ export default async function handler(req, res) {
       });
     }
 
-    const supabaseUrl =
-      process.env.SUPABASE_URL ||
-      process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-    const serviceKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!supabaseUrl || !serviceKey) {
+    if (!process.env.DATABASE_URL) {
       return res.status(500).json({
-        error: "Supabase environment variables are missing.",
+        error: "DATABASE_URL environment variable is missing.",
       });
     }
 
@@ -162,7 +158,8 @@ export default async function handler(req, res) {
       });
     }
 
-    const balance = await cubeBalanceOf(wallet);
+    const normalizedWallet = wallet.toLowerCase();
+    const balance = await cubeBalanceOf(normalizedWallet);
 
     if (balance !== 1n) {
       return res.status(403).json({
@@ -173,51 +170,64 @@ export default async function handler(req, res) {
 
     const cubeOwner = await ownerOf(cubeNumber);
 
-    if (cubeOwner.toLowerCase() !== wallet.toLowerCase()) {
+    if (cubeOwner.toLowerCase() !== normalizedWallet) {
       return res.status(403).json({
         error: "Entered EnergonCube is not held by this wallet.",
       });
     }
 
-    const supabaseRes = await fetch(
-      `${supabaseUrl}/rest/v1/guardian_records`,
-      {
-        method: "POST",
-        headers: {
-          apikey: serviceKey,
-          authorization: `Bearer ${serviceKey}`,
-          "content-type": "application/json",
-          prefer: "return=representation",
-        },
-        body: JSON.stringify({
-          wallet: wallet.toLowerCase(),
-          cube_id: Number(cubeNumber),
-          cube_balance: Number(balance),
-          guardian_name: cleanName || null,
-          record_text: cleanRecord,
-          public_permission: Boolean(publicPermission),
-          book_permission: Boolean(bookPermission),
-          status: "submitted",
-        }),
-      }
-    );
+    const sql = neon(process.env.DATABASE_URL);
+    console.log("DATABASE_URL exists:", Boolean(process.env.DATABASE_URL));
 
-    if (!supabaseRes.ok) {
-      const text = await supabaseRes.text();
-
-      throw new Error(
-        text || "Supabase insert failed."
-      );
+    try {
+      const databaseUrl = new URL(process.env.DATABASE_URL);
+      console.log("DATABASE_URL host:", databaseUrl.host);
+    } catch {
+      console.log("DATABASE_URL host: INVALID_URL");
     }
 
-    const savedRows = await supabaseRes.json();
-    const savedRecord = Array.isArray(savedRows)
-      ? savedRows[0]
-      : null;
+    const savedRows = await sql`
+      INSERT INTO guardian_records (
+        wallet,
+        cube_id,
+        cube_balance,
+        guardian_name,
+        record_text,
+        public_permission,
+        book_permission,
+        status
+      )
+      VALUES (
+        ${normalizedWallet},
+        ${Number(cubeNumber)},
+        ${Number(balance)},
+        ${cleanName || null},
+        ${cleanRecord},
+        ${Boolean(publicPermission)},
+        ${Boolean(bookPermission)},
+        'submitted'
+      )
+      RETURNING
+        id,
+        created_at,
+        wallet,
+        cube_id,
+        cube_balance,
+        guardian_name,
+        record_text,
+        public_permission,
+        book_permission,
+        status
+    `;
+
+    const savedRecord =
+      Array.isArray(savedRows) && savedRows.length > 0
+        ? savedRows[0]
+        : null;
 
     if (!savedRecord) {
       throw new Error(
-        "Supabase saved the request but did not return the inserted record."
+        "Neon saved the request but did not return the inserted record."
       );
     }
 
@@ -226,7 +236,7 @@ export default async function handler(req, res) {
       savedRecord.created_at === undefined
     ) {
       throw new Error(
-        "Supabase record is missing id or created_at."
+        "Neon record is missing id or created_at."
       );
     }
 
