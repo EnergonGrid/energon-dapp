@@ -3,7 +3,7 @@ import crypto from "crypto";
 const CUBE_ADDRESS =
   "0x30e1076bDf2B123B54486C2721125388af2d2061".toLowerCase();
 
-const GUARDIAN_STATE_MAX_AGE_MS =
+const STATE_MAX_AGE_MS =
   10 * 60 * 1000;
 
 function safeEqualBase64Url(a, b) {
@@ -55,13 +55,6 @@ function verifyGuardianState(
   const suppliedSignature =
     state.slice(separator + 1);
 
-  if (
-    !encoded ||
-    !suppliedSignature
-  ) {
-    return null;
-  }
-
   const expectedSignature =
     crypto
       .createHmac(
@@ -80,10 +73,8 @@ function verifyGuardianState(
     return null;
   }
 
-  let payload;
-
   try {
-    payload =
+    const payload =
       JSON.parse(
         Buffer
           .from(
@@ -92,46 +83,47 @@ function verifyGuardianState(
           )
           .toString("utf8")
       );
+
+    if (
+      payload?.v !== 1 ||
+      !payload?.wallet ||
+      !/^0x[a-fA-F0-9]{40}$/.test(
+        payload.wallet
+      ) ||
+      !payload?.cubeId ||
+      !/^[0-9]+$/.test(
+        String(payload.cubeId)
+      ) ||
+      !payload?.iat ||
+      !Number.isFinite(
+        Number(payload.iat)
+      )
+    ) {
+      return null;
+    }
+
+    const createdAt =
+      Number(payload.iat);
+
+    if (
+      Date.now() - createdAt >
+        STATE_MAX_AGE_MS ||
+      createdAt - Date.now() >
+        60 * 1000
+    ) {
+      return null;
+    }
+
+    return {
+      wallet:
+        payload.wallet.toLowerCase(),
+
+      cubeId:
+        String(payload.cubeId),
+    };
   } catch {
     return null;
   }
-
-  if (
-    payload?.v !== 1 ||
-    !payload?.wallet ||
-    !/^0x[a-fA-F0-9]{40}$/.test(
-      payload.wallet
-    ) ||
-    !payload?.cubeId ||
-    !/^[0-9]+$/.test(
-      String(payload.cubeId)
-    ) ||
-    !Number.isFinite(
-      Number(payload.iat)
-    )
-  ) {
-    return null;
-  }
-
-  const createdAt =
-    Number(payload.iat);
-
-  if (
-    Date.now() - createdAt >
-      GUARDIAN_STATE_MAX_AGE_MS ||
-    createdAt - Date.now() >
-      60 * 1000
-  ) {
-    return null;
-  }
-
-  return {
-    wallet:
-      payload.wallet.toLowerCase(),
-
-    cubeId:
-      String(payload.cubeId),
-  };
 }
 
 function padAddress(address) {
@@ -148,10 +140,7 @@ function padUint(value) {
 }
 
 function decodeAddress(hex) {
-  if (
-    !hex ||
-    hex === "0x"
-  ) {
+  if (!hex || hex === "0x") {
     return "";
   }
 
@@ -190,13 +179,8 @@ async function rpcCall(
           jsonrpc: "2.0",
           id: 1,
           method: "eth_call",
-
           params: [
-            {
-              to,
-              data,
-            },
-
+            { to, data },
             "latest",
           ],
         }),
@@ -299,132 +283,13 @@ async function assignGuardianRole(
   );
 }
 
-function sendSuccessPage(
-  res,
-  wallet,
-  cubeId
-) {
-  const shortWallet =
-    `${wallet.slice(0, 6)}...${wallet.slice(-4)}`;
-
-  res.setHeader(
-    "Content-Type",
-    "text/html; charset=utf-8"
-  );
-
-  return res.status(200).send(`<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Energon Guardian Verified</title>
-  <style>
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      font-family: system-ui, -apple-system, Segoe UI, sans-serif;
-      color: #fff;
-      background:
-        radial-gradient(circle at 50% 0%, #152b63 0%, #050811 55%, #000 100%);
-    }
-
-    .card {
-      width: 100%;
-      max-width: 520px;
-      padding: 32px 24px;
-      border-radius: 22px;
-      border: 1px solid rgba(134,240,168,.35);
-      background: rgba(8,14,28,.92);
-      box-shadow: 0 0 38px rgba(134,240,168,.12);
-      text-align: center;
-    }
-
-    h1 {
-      margin: 0 0 14px;
-      color: #86f0a8;
-      font-size: 28px;
-      letter-spacing: 1.5px;
-      text-transform: uppercase;
-    }
-
-    p {
-      margin: 10px 0;
-      line-height: 1.6;
-      color: rgba(255,255,255,.78);
-    }
-
-    .status {
-      margin: 22px 0;
-      padding: 16px;
-      border-radius: 14px;
-      background: rgba(134,240,168,.07);
-      border: 1px solid rgba(134,240,168,.18);
-    }
-
-    strong {
-      color: #fff;
-    }
-  </style>
-</head>
-
-<body>
-  <main class="card">
-    <h1>Guardian Verified</h1>
-
-    <p>
-      Discord Guardian verification is complete.
-    </p>
-
-    <div class="status">
-      <p>
-        Wallet:
-        <strong>${shortWallet}</strong>
-      </p>
-
-      <p>
-        EnergonCube:
-        <strong>#${cubeId}</strong>
-      </p>
-
-      <p>
-        State:
-        <strong>COHERENT</strong>
-      </p>
-
-      <p>
-        Discord Role:
-        <strong>GUARDIAN ASSIGNED</strong>
-      </p>
-    </div>
-
-    <p>
-      You may now return to EnergonGrid.
-    </p>
-
-    <p>
-      One wallet. One cube. One Guardian.
-    </p>
-  </main>
-</body>
-</html>`);
-}
-
 export default async function handler(
   req,
   res
 ) {
   if (req.method !== "GET") {
     return res.status(405).json({
-      error:
-        "Method not allowed.",
+      error: "Method not allowed.",
     });
   }
 
@@ -441,10 +306,7 @@ export default async function handler(
     });
   }
 
-  if (
-    !code ||
-    !state
-  ) {
+  if (!code || !state) {
     return res.status(400).json({
       error:
         "Missing Discord OAuth code or state.",
@@ -484,11 +346,44 @@ export default async function handler(
   if (!guardianState) {
     return res.status(403).json({
       error:
-        "Invalid or expired Guardian verification.",
+        "Invalid or expired Guardian verification state.",
     });
   }
 
   try {
+    /*
+      Re-check Guardian coherence at callback time.
+
+      This ensures the wallet still holds exactly one cube
+      before the Discord role is assigned.
+    */
+    const balance =
+      await cubeBalanceOf(
+        guardianState.wallet
+      );
+
+    if (balance !== 1n) {
+      return res.status(403).json({
+        error:
+          "Wallet is no longer a Coherent Guardian.",
+      });
+    }
+
+    const cubeOwner =
+      await ownerOf(
+        guardianState.cubeId
+      );
+
+    if (
+      cubeOwner !==
+      guardianState.wallet
+    ) {
+      return res.status(403).json({
+        error:
+          "EnergonCube ownership changed before Discord verification completed.",
+      });
+    }
+
     const tokenResponse =
       await fetch(
         "https://discord.com/api/v10/oauth2/token",
@@ -567,41 +462,20 @@ export default async function handler(
       });
     }
 
-    const balance =
-      await cubeBalanceOf(
-        guardianState.wallet
-      );
-
-    if (balance !== 1n) {
-      return res.status(403).json({
-        error:
-          "Wallet is no longer a Coherent Guardian.",
-      });
-    }
-
-    const cubeOwner =
-      await ownerOf(
-        guardianState.cubeId
-      );
-
-    if (
-      cubeOwner !==
-      guardianState.wallet
-    ) {
-      return res.status(403).json({
-        error:
-          "EnergonCube ownership changed before Discord verification completed.",
-      });
-    }
-
     await assignGuardianRole(
       String(discordUser.id)
     );
 
-    return sendSuccessPage(
-      res,
-      guardianState.wallet,
-      guardianState.cubeId
+    const params =
+      new URLSearchParams({
+        discord: "verified",
+        role: "assigned",
+        cube:
+          guardianState.cubeId,
+      });
+
+    return res.redirect(
+      `https://guardian.energon.app/leave-record.html?${params.toString()}`
     );
   } catch (error) {
     console.error(
