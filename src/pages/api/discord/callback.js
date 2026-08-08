@@ -178,7 +178,7 @@ export default async function handler(req, res) {
     ]);
 
     return res.redirect(
-      "/mint?discord=connected"
+      "https://guardian.energon.app/leave-record.html?discord=connected"
     );
   } catch (error) {
     console.error(
