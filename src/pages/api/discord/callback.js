@@ -300,10 +300,14 @@ export default async function handler(
   } = req.query || {};
 
   if (error) {
-    return res.status(400).json({
-      error:
-        `Discord OAuth error: ${error}`,
-    });
+    const params =
+      new URLSearchParams({
+        discord: "cancelled",
+      });
+
+    return res.redirect(
+      `https://guardian.energon.app/leave-record.html?${params.toString()}`
+    );
   }
 
   if (!code || !state) {
