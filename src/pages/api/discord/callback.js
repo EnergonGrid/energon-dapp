@@ -1,32 +1,125 @@
 import crypto from "crypto";
 
-function parseCookies(cookieHeader = "") {
-  return Object.fromEntries(
-    cookieHeader
-      .split(";")
-      .map((part) => part.trim())
-      .filter(Boolean)
-      .map((part) => {
-        const index = part.indexOf("=");
+const DISCORD_PROOF_MAX_AGE_MS =
+  10 * 60 * 1000;
 
-        return [
-          decodeURIComponent(part.slice(0, index)),
-          decodeURIComponent(part.slice(index + 1)),
-        ];
-      })
+function safeEqualHex(a, b) {
+  try {
+    const aBuffer =
+      Buffer.from(a, "hex");
+
+    const bBuffer =
+      Buffer.from(b, "hex");
+
+    if (
+      aBuffer.length === 0 ||
+      aBuffer.length !== bBuffer.length
+    ) {
+      return false;
+    }
+
+    return crypto.timingSafeEqual(
+      aBuffer,
+      bBuffer
+    );
+  } catch {
+    return false;
+  }
+}
+
+function verifySignedState(state, secret) {
+  if (
+    !state ||
+    typeof state !== "string" ||
+    !secret
+  ) {
+    return false;
+  }
+
+  const parts = state.split(".");
+
+  if (parts.length !== 3) {
+    return false;
+  }
+
+  const [
+    timestamp,
+    nonce,
+    suppliedSignature,
+  ] = parts;
+
+  if (
+    !/^[0-9]+$/.test(timestamp) ||
+    !/^[a-f0-9]+$/i.test(nonce) ||
+    !/^[a-f0-9]+$/i.test(
+      suppliedSignature
+    )
+  ) {
+    return false;
+  }
+
+  const createdAt =
+    Number(timestamp);
+
+  if (
+    !Number.isFinite(createdAt) ||
+    Date.now() - createdAt >
+      DISCORD_PROOF_MAX_AGE_MS ||
+    createdAt - Date.now() >
+      60 * 1000
+  ) {
+    return false;
+  }
+
+  const payload =
+    `${timestamp}.${nonce}`;
+
+  const expectedSignature =
+    crypto
+      .createHmac(
+        "sha256",
+        secret
+      )
+      .update(payload)
+      .digest("hex");
+
+  return safeEqualHex(
+    suppliedSignature,
+    expectedSignature
   );
 }
 
-function signDiscordSession(discordUserId, secret) {
-  const signature = crypto
-    .createHmac("sha256", secret)
-    .update(discordUserId)
-    .digest("hex");
+function createDiscordProof(
+  discordUserId,
+  secret
+) {
+  const timestamp =
+    Date.now().toString();
 
-  return `${discordUserId}.${signature}`;
+  const nonce =
+    crypto
+      .randomBytes(24)
+      .toString("hex");
+
+  const payload =
+    `${discordUserId}.${timestamp}.${nonce}`;
+
+  const signature =
+    crypto
+      .createHmac(
+        "sha256",
+        secret
+      )
+      .update(payload)
+      .digest("hex");
+
+  return `${payload}.${signature}`;
 }
 
-export default async function handler(req, res) {
+export default async function handler(
+  req,
+  res
+) {
   if (req.method !== "GET") {
     return res.status(405).json({
       error: "Method not allowed.",
@@ -41,28 +134,15 @@ export default async function handler(req, res) {
 
   if (error) {
     return res.status(400).json({
-      error: `Discord OAuth error: ${error}`,
+      error:
+        `Discord OAuth error: ${error}`,
     });
   }
 
   if (!code || !state) {
     return res.status(400).json({
-      error: "Missing Discord OAuth code or state.",
-    });
-  }
-
-  const cookies =
-    parseCookies(req.headers.cookie || "");
-
-  const expectedState =
-    cookies.discord_oauth_state;
-
-  if (
-    !expectedState ||
-    state !== expectedState
-  ) {
-    return res.status(403).json({
-      error: "Invalid Discord OAuth state.",
+      error:
+        "Missing Discord OAuth code or state.",
     });
   }
 
@@ -90,27 +170,43 @@ export default async function handler(req, res) {
     });
   }
 
+  if (
+    !verifySignedState(
+      String(state),
+      sessionSecret
+    )
+  ) {
+    return res.status(403).json({
+      error:
+        "Invalid or expired Discord OAuth state.",
+    });
+  }
+
   try {
-    const tokenResponse = await fetch(
-      "https://discord.com/api/v10/oauth2/token",
-      {
-        method: "POST",
+    const tokenResponse =
+      await fetch(
+        "https://discord.com/api/v10/oauth2/token",
+        {
+          method: "POST",
 
-        headers: {
-          "Content-Type":
-            "application/x-www-form-urlencoded",
-        },
+          headers: {
+            "Content-Type":
+              "application/x-www-form-urlencoded",
+          },
 
-        body: new URLSearchParams({
-          client_id: clientId,
-          client_secret: clientSecret,
-          grant_type:
-            "authorization_code",
-          code: String(code),
-          redirect_uri: redirectUri,
-        }),
-      }
-    );
+          body:
+            new URLSearchParams({
+              client_id: clientId,
+              client_secret:
+                clientSecret,
+              grant_type:
+                "authorization_code",
+              code: String(code),
+              redirect_uri:
+                redirectUri,
+            }),
+        }
+      );
 
     const tokenJson =
       await tokenResponse.json();
@@ -130,15 +226,16 @@ export default async function handler(req, res) {
       });
     }
 
-    const userResponse = await fetch(
-      "https://discord.com/api/v10/users/@me",
-      {
-        headers: {
-          Authorization:
-            `Bearer ${tokenJson.access_token}`,
-        },
-      }
-    );
+    const userResponse =
+      await fetch(
+        "https://discord.com/api/v10/users/@me",
+        {
+          headers: {
+            Authorization:
+              `Bearer ${tokenJson.access_token}`,
+          },
+        }
+      );
 
     const discordUser =
       await userResponse.json();
@@ -158,27 +255,20 @@ export default async function handler(req, res) {
       });
     }
 
-    const signedSession =
-      signDiscordSession(
-        discordUser.id,
+    const discordProof =
+      createDiscordProof(
+        String(discordUser.id),
         sessionSecret
       );
 
-    const secure =
-      process.env.NODE_ENV === "production"
-        ? "; Secure"
-        : "";
-
-    res.setHeader("Set-Cookie", [
-      `discord_session=${encodeURIComponent(
-        signedSession
-      )}; HttpOnly; SameSite=Lax; Path=/; Max-Age=900${secure}`,
-
-      `discord_oauth_state=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0${secure}`,
-    ]);
+    const params =
+      new URLSearchParams({
+        discord: "connected",
+        proof: discordProof,
+      });
 
     return res.redirect(
-      "https://guardian.energon.app/leave-record.html?discord=connected"
+      `https://guardian.energon.app/leave-record.html?${params.toString()}`
     );
   } catch (error) {
     console.error(
