@@ -1035,7 +1035,7 @@ const styles = {
     position: "relative",
     overflow: "hidden",
     background:
-      "radial-gradient(circle at 50% 14%, rgba(38,74,160,0.08) 0%, rgba(5,10,24,0.32) 18%, #000000 52%, #000000 100%)",
+      "#000000",
     color: "#fff",
     fontFamily:
       'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif',
