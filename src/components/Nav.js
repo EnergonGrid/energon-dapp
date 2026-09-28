@@ -41,7 +41,7 @@ export default function Nav() {
     }
 
     refreshNavState();
-    const interval = setInterval(refreshNavState, 5000);
+    const interval = setInterval(refreshNavState, 30000);
 
     if (typeof window !== "undefined") {
       window.addEventListener("focus", refreshNavState);
