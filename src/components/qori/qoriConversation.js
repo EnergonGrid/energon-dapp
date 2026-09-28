@@ -181,9 +181,9 @@ export function buildGuardianDialogueResponse(cleanInput, ctx = {}) {
 
   if (!q) return "";
 
-  rememberConversationTopic(cleanInput);
+  rememberConversationTopic(cleanInput, ctx.walletAddress);
 
-  const rememberedTopic = readConversationTopic();
+  const rememberedTopic = readConversationTopic(ctx.walletAddress);
   const intent = detectIntent(cleanInput);
 
   const reasoning = buildReasoningContext({
@@ -283,7 +283,7 @@ Test.
 Observe.
 Document.
 
-The Grid remains stable.
+Ask for a protocol reading to inspect the available values.
 
 What are you focused on today, Guardian?
 
