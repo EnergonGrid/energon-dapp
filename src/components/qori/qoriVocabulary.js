@@ -1632,14 +1632,13 @@ EMP deeper.`,
     match: ["evault", "vault"],
     response: `EVAULT
 
-EVault is the future value-layer concept
-for Energon.
+EVault is part of the Energon stack.
 
-It should remain deterministic,
-self-sustaining,
-and rule-based.
+This Q.O.R.I version does not yet read EVault contracts
+or verify claims, activation, maturity, or payouts.
 
-No hidden dependency should control it.`,
+Use the verified deployment documentation and EVault interface.
+Deployment status and eligibility cannot be inferred here.`,
   },
 
   {
