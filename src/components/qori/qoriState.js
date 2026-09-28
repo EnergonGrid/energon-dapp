@@ -1,13 +1,11 @@
 import { ethers } from "ethers";
+import { createQoriReader } from "./qoriReadClient";
 import {
   ABI,
   CONTRACT_ADDRESS,
   MAINNET_CHAIN_ID,
   RPCS,
 } from "../../lib/contract";
-
-const CONTROLLER_ADDRESS_LOCKED =
-  "0xc737bDcA9aFc57a1277480c3DFBF5bdbEcb54BB6";
 
 const CONTROLLER_ABI = [
   "function energonHeight() view returns (uint256)",
@@ -133,13 +131,13 @@ function formatNumber(value) {
   }
 }
 
-function getRpcUrl() {
+function getRpcUrls() {
   const v = RPCS?.[MAINNET_CHAIN_ID];
 
-  if (Array.isArray(v)) return v.filter(Boolean)[0] || "";
-  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.filter(Boolean);
+  if (typeof v === "string") return [v];
 
-  return "";
+  return [];
 }
 
 function createBaseCtx() {
@@ -151,7 +149,7 @@ function createBaseCtx() {
     energonHeight: "UNKNOWN",
     tickState: "UNKNOWN",
     burnState: "UNKNOWN",
-    halvingState: "ACTIVE CYCLE",
+    halvingState: "UNKNOWN",
     nextHalvingDate: "",
     halvingCountdown: "",
     protocolEra: getProtocolEra(),
@@ -223,6 +221,9 @@ Entry requires a key.`;
 }
 
 export function getSystemObservation(ctx = {}) {
+  if (ctx.guardianState === "UNKNOWN") {
+    return `STATE UNVERIFIED\n\nWallet or cube balance could not be verified.\nNo change in cube ownership has been established.\n\n${ctx.readStatus || "UNAVAILABLE"}`;
+  }
   if (ctx.walletConnected && ctx.cubeBalance === "1" && ctx.guardianState === "COHERENT") {
     return `SYSTEM OBSERVATION
 
@@ -242,9 +243,8 @@ ${ctx.burnState || "UNKNOWN"}
 Current Era:
 ${ctx.protocolEra || getProtocolEra()}
 
-The Grid remains stable.
-
-No protocol anomalies observed.
+These are limited protocol readings.
+They do not establish overall protocol health.
 
 Q.O.R.I observes.
 Q.O.R.I does not intervene.`;
@@ -289,118 +289,26 @@ Exactly one EnergonCube.
 Q.O.R.I remains in public guidance mode.`;
 }
 
-export async function readQoriLiveState() {
-  const baseCtx = createBaseCtx();
+const reader = createQoriReader({
+  rpcUrls: getRpcUrls(),
+  chainId: MAINNET_CHAIN_ID,
+  createBaseCtx,
+  createProvider(url) {
+    const request = new ethers.FetchRequest(url);
+    request.timeout = 8000;
+    return new ethers.JsonRpcProvider(request);
+  },
+  createCube: (provider) => new ethers.Contract(CONTRACT_ADDRESS, ABI, provider),
+  createController: (address, provider) => new ethers.Contract(address, CONTROLLER_ABI, provider),
+  formatBurn: (value) => `${Number(ethers.formatUnits(value, 18)).toLocaleString(undefined, { maximumFractionDigits: 2 })} EON Remaining`,
+  formatCountdown,
+  formatDate: formatDateFromUnix,
+});
 
-  try {
-    const rpcUrl = getRpcUrl();
-    if (!rpcUrl) return baseCtx;
-
-    const roProvider = new ethers.JsonRpcProvider(rpcUrl);
-    const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, roProvider);
-
-    let ctrl = CONTROLLER_ADDRESS_LOCKED;
-
-    try {
-      const onChainCtrl = await cube.controller();
-      if (onChainCtrl && onChainCtrl !== ethers.ZeroAddress) {
-        ctrl = onChainCtrl;
-      }
-    } catch {}
-
-    try {
-      const controller = new ethers.Contract(ctrl, CONTROLLER_ABI, roProvider);
-
-      try {
-        const h = await controller.energonHeight();
-        baseCtx.energonHeight = h.toString();
-      } catch {}
-
-      try {
-        const sec = await controller.secondsUntilNextEnergonBlock();
-        const n = Number(sec.toString());
-        baseCtx.tickState = n === 0 ? "TICK ALLOWED" : formatCountdown(n);
-      } catch {}
-
-      try {
-        const remaining = await controller.burnPoolRemaining();
-        const formattedRemaining = ethers.formatUnits(remaining, 18);
-
-        const cleanRemaining = Number(formattedRemaining).toLocaleString(
-          undefined,
-          { maximumFractionDigits: 2 }
-        );
-
-        baseCtx.burnState = `${cleanRemaining} EON Remaining`;
-      } catch {}
-
-      try {
-        const lastHalving = await controller.lastHalvingTime();
-        const interval = await controller.halvingInterval();
-
-        const next =
-          Number(lastHalving.toString()) + Number(interval.toString());
-
-        if (next > 0) {
-          baseCtx.nextHalvingDate = formatDateFromUnix(next);
-          baseCtx.halvingCountdown = formatCountdown(
-            next - Math.floor(Date.now() / 1000)
-          );
-        }
-      } catch {}
-    } catch {}
-
-    if (typeof window === "undefined" || !window.ethereum) {
-      return baseCtx;
-    }
-
-    let accounts = [];
-
-    try {
-      accounts = await window.ethereum.request({
-        method: "eth_accounts",
-      });
-    } catch {
-      return baseCtx;
-    }
-
-    const addr = accounts?.[0] || "";
-
-    if (!addr) {
-      return baseCtx;
-    }
-
-    baseCtx.walletConnected = true;
-    baseCtx.walletAddress = addr;
-
-    try {
-      const bal = await cube.balanceOf(addr);
-      const n = Number(bal.toString());
-
-      baseCtx.cubeBalance = String(n);
-
-      if (n === 1) {
-        baseCtx.guardianState = "COHERENT";
-      } else if (n > 1) {
-        baseCtx.guardianState = "FRACTURED";
-      } else {
-        baseCtx.guardianState = "NO KEY";
-      }
-    } catch {
-      baseCtx.guardianState = "NO KEY";
-      baseCtx.cubeBalance = "-";
-    }
-
-    if (!baseCtx.walletConnected || baseCtx.cubeBalance !== "1") {
-      if (baseCtx.guardianState === "COHERENT") {
-        baseCtx.guardianState = "NO KEY";
-      }
-    }
-
-    baseCtx.protocolEra = getProtocolEra();
-
-    return baseCtx;
-  } catch {
-    return createBaseCtx();
-  }
+export function readQoriLiveState(options = {}) {
+  if (options.landingMode) return reader({ landingMode: true });
+  return reader({
+    wallet: typeof window === "undefined" ? null : window.ethereum,
+    ...options,
+  });
 }
