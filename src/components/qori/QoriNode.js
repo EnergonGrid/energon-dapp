@@ -12,16 +12,16 @@ import {
   readQoriLiveState,
 } from "./qoriState";
 
-const QORI_MEMORY_KEY = "energon_qori_guardian_memory_v1";
+import { readGuardianMemory, writeGuardianMemory } from "./qoriMemory";
 
 const AMBIENT_OBSERVATIONS = [
   "Guardian signal remains coherent.",
-  "No protocol anomalies detected.",
-  "The Grid remains stable.",
+  "Protocol health has not been assessed.",
+  "Q.O.R.I reports only the readings available to it.",
   "Q.O.R.I continues passive observation.",
-  "Protocol state remains within expected parameters.",
-  "No intervention required.",
-  "Energon state unchanged since last observation.",
+  "Ask for a protocol reading to inspect the available values.",
+  "Q.O.R.I does not authorize protocol actions.",
+  "Observation is limited to the configured contract reads.",
   "Guardian coherence confirmed.",
 ];
 
@@ -81,26 +81,6 @@ function daysBetween(a, b) {
   } catch {
     return 0;
   }
-}
-
-function readMemory() {
-  if (typeof window === "undefined") return {};
-
-  try {
-    const raw = localStorage.getItem(QORI_MEMORY_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) || {};
-  } catch {
-    return {};
-  }
-}
-
-function writeMemory(memory = {}) {
-  if (typeof window === "undefined") return;
-
-  try {
-    localStorage.setItem(QORI_MEMORY_KEY, JSON.stringify(memory));
-  } catch {}
 }
 
 function openLandingUrl(url) {
@@ -194,9 +174,9 @@ _`,
 
     `SYSTEM OBSERVATION
 
-No protocol anomalies observed.
+Protocol health has not been assessed.
 
-The Grid remains stable.
+Q.O.R.I reports only the readings available to it.
 
 _`,
 
@@ -211,11 +191,12 @@ _`,
 }
 
 function buildStateChangeMessages(prev, next) {
-  if (!prev || !next) return [];
+  if (!prev || !next || prev.readStatus !== "FRESH" || next.readStatus !== "FRESH") return [];
 
   const messages = [];
 
   if (
+    prev.walletAddress === next.walletAddress &&
     prev.guardianState &&
     next.guardianState &&
     prev.guardianState !== next.guardianState
@@ -348,7 +329,7 @@ _`);
 
 function updateGuardianMemory(ctx = {}) {
   const now = Date.now();
-  const memory = readMemory();
+  const memory = readGuardianMemory(ctx.walletAddress);
 
   const firstVisit = memory.firstVisit || now;
   const lastVisit = memory.lastVisit || 0;
@@ -380,7 +361,7 @@ function updateGuardianMemory(ctx = {}) {
     milestones: memory.milestones || {},
   };
 
-  writeMemory(nextMemory);
+  writeGuardianMemory(ctx.walletAddress, nextMemory);
 
   return {
     previousMemory: memory,
@@ -498,7 +479,7 @@ Protocol synchronized.
 _`);
   }
 
-  writeMemory({
+  writeGuardianMemory(ctx.walletAddress, {
     ...nextMemory,
     milestones,
   });
@@ -518,7 +499,7 @@ Until then, this interface provides public protocol guidance only.
 _`;
   }
 
-  const memory = readMemory();
+  const memory = readGuardianMemory(ctx.walletAddress);
   const count = Number(memory.observationCount || 0);
   const lastVisit = Number(memory.lastVisit || 0);
   const away = daysBetween(lastVisit, Date.now());
@@ -545,7 +526,7 @@ Guardian recognized.
 
 Observation #${count.toLocaleString()}.
 
-No protocol anomalies observed.
+Protocol health has not been assessed.
 
 ${randomGuardianPrompt()}
 
@@ -555,7 +536,7 @@ _`;
   return guardianDialoguePrompt(ctx);
 }
 
-export default function QoriNode({ hideOrb = true } = {}) {
+export default function QoriNode({ hideOrb = true, landingMode = false } = {}) {
   const [open, setOpen] = useState(false);
   const [pulse, setPulse] = useState(1);
   const [input, setInput] = useState("");
@@ -565,7 +546,6 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const [isTyping, setIsTyping] = useState(false);
   const [silent, setSilent] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const [landingMode, setLandingMode] = useState(false);
   const [walletPromptGlow, setWalletPromptGlow] = useState(false);
 
   const [ctx, setCtx] = useState({
@@ -579,8 +559,12 @@ export default function QoriNode({ hideOrb = true } = {}) {
     nextHalvingDate: "",
     halvingCountdown: "",
     protocolEra: "UNKNOWN",
+    readStatus: "UNAVAILABLE",
   });
 
+  const requestIdRef = useRef(0);
+  const walletEpochRef = useRef(0);
+  const refreshRef = useRef(null);
   const typingRef = useRef(null);
   const liveRef = useRef(null);
   const silentRef = useRef(null);
@@ -823,6 +807,11 @@ export default function QoriNode({ hideOrb = true } = {}) {
     const q = normalizeInput(cleanInput);
     const query = visitorQueryFromInput(q);
 
+    if (q.includes("evault") || q.includes("vault")) {
+      answerLive(getQoriResponse(cleanInput));
+      return true;
+    }
+
     if (q === "4" || q.includes("wallet setup")) {
       transmit(
         "Opening Wallet Setup...\n\n_",
@@ -912,6 +901,11 @@ _`,
   function handleCoherentMessage(cleanInput) {
     const q = normalizeInput(cleanInput);
     const liveCtx = latestCtxRef.current;
+
+    if (q.includes("evault") || q.includes("vault")) {
+      answerLive(getQoriResponse(cleanInput));
+      return true;
+    }
 
     if (!isCoherentQori(liveCtx)) {
       return handleVisitorMessage(cleanInput);
@@ -1043,10 +1037,11 @@ _`,
         energonHeight: "PUBLIC",
         tickState: "PUBLIC GUIDE",
         burnState: "PUBLIC GUIDE",
-        halvingState: "ACTIVE CYCLE",
+        halvingState: "PUBLIC GUIDE",
         nextHalvingDate: "",
         halvingCountdown: "",
-        protocolEra: "GENESIS CYCLE",
+        protocolEra: "PUBLIC GUIDE",
+        readStatus: "PUBLIC GUIDE",
       };
 
       latestCtxRef.current = visitorCtx;
@@ -1065,13 +1060,15 @@ _`,
     }
 
     try {
-      const nextCtx = await readQoriLiveState();
+      const requestId = ++requestIdRef.current;
+      const nextCtx = await readQoriLiveState({ landingMode });
+      if (requestId !== requestIdRef.current) return null;
       const prevCtx = previousStateRef.current;
 
       latestCtxRef.current = nextCtx;
       setCtx(nextCtx);
 
-      if (open && !speak && nextCtx.guardianState === "COHERENT") {
+      if (open && !speak && nextCtx.guardianState === "COHERENT" && nextCtx.readStatus === "FRESH") {
         queueStateMessages(buildGuardianMemoryMessages(nextCtx));
       }
 
@@ -1141,29 +1138,47 @@ _`,
     const params = new URLSearchParams(window.location.search);
 
     if (params.get("open") === "1") setOpen(true);
-    if (params.get("mode") === "landing") setLandingMode(true);
 
-    const refreshFromWallet = () => refreshLiveState({ speak: false });
+    const refreshFromWallet = () => {
+      requestIdRef.current += 1;
+      walletEpochRef.current += 1;
+      eventQueueRef.current = [];
+      eventPlayingRef.current = false;
+      clearAmbientTimer();
+      previousStateRef.current = null;
+      stopTyping(typingRef);
+      setIsTyping(false);
+      setThinking(false);
+      setDisplayText("");
+      const unknown = { ...latestCtxRef.current, guardianState: "UNKNOWN", walletConnected: false, walletAddress: "" };
+      latestCtxRef.current = unknown;
+      setCtx(unknown);
+      refreshRef.current?.();
+    };
+    if (landingMode) return;
 
     window.ethereum?.on?.("accountsChanged", refreshFromWallet);
     window.ethereum?.on?.("chainChanged", refreshFromWallet);
     window.addEventListener("focus", refreshFromWallet);
 
-    refreshLiveState();
-
     return () => {
+      requestIdRef.current += 1;
+      walletEpochRef.current += 1;
       window.ethereum?.removeListener?.("accountsChanged", refreshFromWallet);
       window.ethereum?.removeListener?.("chainChanged", refreshFromWallet);
       window.removeEventListener("focus", refreshFromWallet);
     };
   }, []);
 
-  useEffect(() => {
-    refreshLiveState();
+  refreshRef.current = () => refreshLiveState();
 
-    liveRef.current = setInterval(() => refreshLiveState(), 60000);
+  useEffect(() => {
+    refreshRef.current?.();
+    if (!landingMode) liveRef.current = setInterval(() => refreshRef.current?.(), 30000);
 
     return () => {
+      requestIdRef.current += 1;
+      walletEpochRef.current += 1;
       if (liveRef.current) clearInterval(liveRef.current);
       if (silentRef.current) clearTimeout(silentRef.current);
       clearReturnMenuTimer();
@@ -1185,10 +1200,12 @@ _`,
       clearAmbientTimer();
       stopTyping(typingRef);
 
+      const walletEpoch = walletEpochRef.current;
       let bootCtx = latestCtxRef.current;
 
       try {
-        const liveCtx = await readQoriLiveState();
+        const liveCtx = await readQoriLiveState({ landingMode });
+        if (cancelled || walletEpoch !== walletEpochRef.current) return;
         if (liveCtx) {
           bootCtx = liveCtx;
           latestCtxRef.current = liveCtx;
@@ -1216,7 +1233,7 @@ _`;
         openingText,
         35,
         () => {
-          if (cancelled) return;
+          if (cancelled || walletEpoch !== walletEpochRef.current) return;
 
           if (coherent) {
             screenRef.current = "answer";
@@ -1341,6 +1358,12 @@ _`;
               {ctx.walletConnected ? ctx.guardianState || "UNKNOWN" : "NO SIGNAL"} ·
               ERA: {ctx.protocolEra || "UNKNOWN"}
             </div>
+
+            {!landingMode && <div style={{ fontSize: 11, marginBottom: 8 }}>
+              READS: {ctx.readStatus || "UNAVAILABLE"}
+              {ctx.observedAt ? ` · Last complete reading: ${new Date(ctx.observedAt).toLocaleString()}` : ""}
+              {ctx.readStatus !== "FRESH" ? " · Some values may be last known or unavailable." : ""}
+            </div>}
 
             <div
               ref={messageBoxRef}
