@@ -1,4 +1,5 @@
-const SESSION_MEMORY_KEY = "energon_qori_session_memory_v1";
+import { walletMemoryKey } from "../qoriMemory";
+const SESSION_MEMORY_KEY = "energon_qori_session_memory_v2";
 
 function normalize(input = "") {
   return String(input).toLowerCase().trim().replace(/\s+/g, " ");
@@ -56,15 +57,16 @@ export function detectConversationTopic(input = "") {
   return "";
 }
 
-export function rememberConversationTopic(input = "") {
-  if (typeof window === "undefined") return "";
+export function rememberConversationTopic(input = "", address = "") {
+  const key = walletMemoryKey(SESSION_MEMORY_KEY, address);
+  if (!key || typeof window === "undefined") return "";
 
   const topic = detectConversationTopic(input);
   if (!topic) return "";
 
   try {
     localStorage.setItem(
-      SESSION_MEMORY_KEY,
+      key,
       JSON.stringify({
         topic,
         updatedAt: Date.now(),
@@ -75,11 +77,12 @@ export function rememberConversationTopic(input = "") {
   return topic;
 }
 
-export function readConversationTopic() {
-  if (typeof window === "undefined") return "";
+export function readConversationTopic(address = "") {
+  const key = walletMemoryKey(SESSION_MEMORY_KEY, address);
+  if (!key || typeof window === "undefined") return "";
 
   try {
-    const raw = localStorage.getItem(SESSION_MEMORY_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return "";
 
     const parsed = JSON.parse(raw);
@@ -89,7 +92,7 @@ export function readConversationTopic() {
 
     // Forget after 30 minutes.
     if (age > 1000 * 60 * 30) {
-      localStorage.removeItem(SESSION_MEMORY_KEY);
+      localStorage.removeItem(key);
       return "";
     }
 
@@ -99,10 +102,11 @@ export function readConversationTopic() {
   }
 }
 
-export function clearConversationTopic() {
-  if (typeof window === "undefined") return;
+export function clearConversationTopic(address = "") {
+  const key = walletMemoryKey(SESSION_MEMORY_KEY, address);
+  if (!key || typeof window === "undefined") return;
 
   try {
-    localStorage.removeItem(SESSION_MEMORY_KEY);
+    localStorage.removeItem(key);
   } catch {}
 }
