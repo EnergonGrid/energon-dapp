@@ -50,6 +50,10 @@ Ask directly.`;
 
 const KNOWLEDGE = [
   {
+    keys: ["evault", "vault"],
+    responses: ["EVault is part of the Energon stack. This Q.O.R.I version cannot verify its deployment status, claims, activation, maturity, or payouts. Use the verified deployment documentation and EVault interface."],
+  },
+  {
     keys: ["1", "what is energon"],
     exact: true,
     responses: [
