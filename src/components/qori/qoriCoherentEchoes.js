@@ -57,9 +57,9 @@ function normalize(input = "") {
   
   I don't really know how to answer that.
   
-  The protocol is healthy.
+  I can help you inspect the available readings.
   
-  The Grid is stable.
+  They do not establish overall protocol health.
   
   Maybe that's my version
   of feeling good.
