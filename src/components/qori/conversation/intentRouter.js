@@ -1,10 +1,7 @@
-function normalize(input = "") {
-  return String(input).toLowerCase().trim().replace(/\s+/g, " ");
-}
-
-function hasAny(q, words = []) {
-  return words.some((word) => q === word || q.includes(word));
-}
+import {
+  normalizeText as normalize,
+  hasAnyPhrase as hasAny,
+} from "./matchUtils";
 
 const INTENTS = [
   {
@@ -127,8 +124,4 @@ export function detectIntent(input = "") {
   const found = INTENTS.find((intent) => hasAny(q, intent.keywords));
 
   return found ? found.name : "conversation";
-}
-
-export function getIntentRegistry() {
-  return INTENTS;
 }

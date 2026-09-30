@@ -1,54 +1,71 @@
-const SESSION_MEMORY_KEY = "energon_qori_session_memory_v1";
+const SESSION_MEMORY_KEY = "energon_qori_session_memory_v2";
 
-function normalize(input = "") {
-  return String(input).toLowerCase().trim().replace(/\s+/g, " ");
+function conversationMemoryKey(walletAddress) {
+  const address = String(walletAddress || "").trim().toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(address)) return null;
+  return `${SESSION_MEMORY_KEY}:14:${address}`;
 }
+
+import {
+  normalizeText as normalize,
+  hasAnyPhrase,
+} from "./matchUtils";
 
 export function detectConversationTopic(input = "") {
   const q = normalize(input);
 
   if (
-    q.includes("build") ||
-    q.includes("code") ||
-    q.includes("dashboard") ||
-    q.includes("frontend") ||
-    q.includes("test")
+    hasAnyPhrase(q, [
+      "build",
+      "code",
+      "dashboard",
+      "frontend",
+      "test",
+    ])
   ) {
     return "builder";
   }
 
   if (
-    q.includes("community") ||
-    q.includes("twitter") ||
-    q.includes("discord") ||
-    q.includes("post")
+    hasAnyPhrase(q, [
+      "community",
+      "twitter",
+      "discord",
+      "post",
+    ])
   ) {
     return "community";
   }
 
   if (
-    q.includes("explore") ||
-    q.includes("discover") ||
-    q.includes("learn") ||
-    q.includes("curious")
+    hasAnyPhrase(q, [
+      "explore",
+      "discover",
+      "learn",
+      "curious",
+    ])
   ) {
     return "explore";
   }
 
   if (
-    q.includes("verify") ||
-    q.includes("doubt") ||
-    q.includes("confirm") ||
-    q.includes("check")
+    hasAnyPhrase(q, [
+      "verify",
+      "doubt",
+      "confirm",
+      "check",
+    ])
   ) {
     return "verification";
   }
 
   if (
-    q.includes("purpose") ||
-    q.includes("mission") ||
-    q.includes("meaning") ||
-    q.includes("why")
+    hasAnyPhrase(q, [
+      "purpose",
+      "mission",
+      "meaning",
+      "why",
+    ])
   ) {
     return "purpose";
   }
@@ -56,15 +73,17 @@ export function detectConversationTopic(input = "") {
   return "";
 }
 
-export function rememberConversationTopic(input = "") {
+export function rememberConversationTopic(input = "", walletAddress) {
   if (typeof window === "undefined") return "";
+  const key = conversationMemoryKey(walletAddress);
+  if (!key) return "";
 
   const topic = detectConversationTopic(input);
   if (!topic) return "";
 
   try {
     localStorage.setItem(
-      SESSION_MEMORY_KEY,
+      key,
       JSON.stringify({
         topic,
         updatedAt: Date.now(),
@@ -75,11 +94,13 @@ export function rememberConversationTopic(input = "") {
   return topic;
 }
 
-export function readConversationTopic() {
+export function readConversationTopic(walletAddress) {
   if (typeof window === "undefined") return "";
+  const key = conversationMemoryKey(walletAddress);
+  if (!key) return "";
 
   try {
-    const raw = localStorage.getItem(SESSION_MEMORY_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return "";
 
     const parsed = JSON.parse(raw);
@@ -89,7 +110,7 @@ export function readConversationTopic() {
 
     // Forget after 30 minutes.
     if (age > 1000 * 60 * 30) {
-      localStorage.removeItem(SESSION_MEMORY_KEY);
+      localStorage.removeItem(key);
       return "";
     }
 
@@ -97,12 +118,4 @@ export function readConversationTopic() {
   } catch {
     return "";
   }
-}
-
-export function clearConversationTopic() {
-  if (typeof window === "undefined") return;
-
-  try {
-    localStorage.removeItem(SESSION_MEMORY_KEY);
-  } catch {}
 }

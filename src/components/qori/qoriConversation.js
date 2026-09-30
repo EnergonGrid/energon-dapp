@@ -1,4 +1,5 @@
 import { randomGuardianReflection } from "./conversation/guardianReflection";
+import { formatProtocolEraDisplay } from "./qoriState";
 import {
   rememberConversationTopic,
   readConversationTopic,
@@ -11,46 +12,18 @@ import { communityAssistant } from "./conversation/communityAssistant";
 import {
   buildReasoningContext,
   shouldUseSpecialist,
-  hasSecondarySpecialist,
 } from "./conversation/reasoningEngine";
 
-function normalize(input = "") {
-  return String(input).toLowerCase().trim().replace(/\s+/g, " ");
-}
+import {
+  normalizeText as normalize,
+  hasAnyPhrase as hasAny,
+} from "./conversation/matchUtils";
 
-function hasAny(q, words = []) {
-  return words.some((word) => q === word || q.includes(word));
-}
 
 function formatHeight(v = "") {
   const n = Number(String(v || "").replace(/,/g, "").trim());
   if (!Number.isFinite(n)) return v || "UNKNOWN";
   return n.toLocaleString();
-}
-
-function protocolReading(ctx = {}) {
-  return `PROTOCOL READING
-
-Guardian State:
-${ctx.guardianState || "UNKNOWN"}
-
-Energon Height:
-${formatHeight(ctx.energonHeight || "UNKNOWN")}
-
-Next Advancement:
-${ctx.tickState || "UNKNOWN"}
-
-Burn State:
-${ctx.burnState || "UNKNOWN"}
-
-Era:
-${ctx.protocolEra || "UNKNOWN"}
-
-The Grid remains under observation.
-
-What part of the state do you want interpreted?
-
-_`;
 }
 
 function rememberedFollowUp(topic = "") {
@@ -139,51 +112,14 @@ function runSpecialist(name = "", cleanInput = "", ctx = {}) {
   return "";
 }
 
-function combinedSpecialistResponse(reasoning = {}, cleanInput = "", ctx = {}) {
-  const primary = reasoning.primarySpecialist || "";
-  const secondary = reasoning.secondarySpecialist || "";
-
-  const primaryResponse = runSpecialist(primary, cleanInput, ctx);
-  const secondaryResponse = runSpecialist(secondary, cleanInput, ctx);
-
-  if (primaryResponse && secondaryResponse) {
-    return `${primaryResponse}
-
-────────────
-
-SECONDARY SIGNAL
-
-${secondaryResponse}
-
-────────────
-
-Q.O.R.I SUMMARY
-
-Multiple signals detected.
-
-Primary path:
-${primary.toUpperCase()}
-
-Secondary path:
-${secondary.toUpperCase()}
-
-Proceed with the primary task first.
-Then refine the secondary path.
-
-_`;
-  }
-
-  return primaryResponse || secondaryResponse || "";
-}
-
 export function buildGuardianDialogueResponse(cleanInput, ctx = {}) {
   const q = normalize(cleanInput);
 
   if (!q) return "";
 
-  rememberConversationTopic(cleanInput);
+  rememberConversationTopic(cleanInput, ctx.walletAddress);
 
-  const rememberedTopic = readConversationTopic();
+  const rememberedTopic = readConversationTopic(ctx.walletAddress);
   const intent = detectIntent(cleanInput);
 
   const reasoning = buildReasoningContext({
@@ -194,11 +130,6 @@ export function buildGuardianDialogueResponse(cleanInput, ctx = {}) {
   });
 
   if (shouldUseSpecialist(reasoning)) {
-    if (hasSecondarySpecialist(reasoning)) {
-      const combined = combinedSpecialistResponse(reasoning, cleanInput, ctx);
-      if (combined) return combined;
-    }
-
     const specialistResponse = runSpecialist(
       reasoning.primarySpecialist,
       cleanInput,
@@ -220,7 +151,7 @@ export function buildGuardianDialogueResponse(cleanInput, ctx = {}) {
       "stable",
     ])
   ) {
-    return protocolReading(ctx);
+    return protocolAssistant(cleanInput, ctx);
   }
 
   if (
@@ -242,7 +173,6 @@ Energon Height movement.
 Burn pool reduction.
 Era transition.
 Halving cycle updates.
-Signal irregularities.
 
 Meaningful changes will be reported when detected.
 
@@ -250,7 +180,7 @@ Current Energon Height:
 ${formatHeight(ctx.energonHeight || "UNKNOWN")}
 
 Current Era:
-${ctx.protocolEra || "UNKNOWN"}
+${formatProtocolEraDisplay(ctx)}
 
 Do you want a full protocol reading?
 
@@ -282,8 +212,6 @@ Build.
 Test.
 Observe.
 Document.
-
-The Grid remains stable.
 
 What are you focused on today, Guardian?
 
@@ -458,7 +386,7 @@ _`;
       "show me",
     ])
   ) {
-    return protocolReading(ctx);
+    return protocolAssistant(cleanInput, ctx);
   }
 
   if (hasAny(q, ["no", "not now", "nope"])) {

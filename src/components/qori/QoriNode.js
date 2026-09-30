@@ -10,18 +10,25 @@ import {
   getSystemObservation,
   getVisitorObservation,
   readQoriLiveState,
+  formatProtocolEraDisplay,
 } from "./qoriState";
 
-const QORI_MEMORY_KEY = "energon_qori_guardian_memory_v1";
+const QORI_MEMORY_KEY = "energon_qori_guardian_memory_v2";
+
+function guardianMemoryKey(walletAddress) {
+  const address = String(walletAddress || "").trim().toLowerCase();
+  if (!/^0x[0-9a-f]{40}$/.test(address)) return null;
+  return `${QORI_MEMORY_KEY}:14:${address}`;
+}
 
 const AMBIENT_OBSERVATIONS = [
   "Guardian signal remains coherent.",
-  "No protocol anomalies detected.",
-  "The Grid remains stable.",
+  "Live protocol state received.",
+  "The Grid remains observable.",
   "Q.O.R.I continues passive observation.",
-  "Protocol state remains within expected parameters.",
-  "No intervention required.",
-  "Energon state unchanged since last observation.",
+  "Protocol state remains available for interpretation.",
+  "Q.O.R.I remains observational.",
+  "Current Energon state recorded.",
   "Guardian coherence confirmed.",
 ];
 
@@ -83,23 +90,30 @@ function daysBetween(a, b) {
   }
 }
 
-function readMemory() {
+function readMemory(walletAddress) {
   if (typeof window === "undefined") return {};
+  const key = guardianMemoryKey(walletAddress);
+  if (!key) return {};
 
   try {
-    const raw = localStorage.getItem(QORI_MEMORY_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return {};
-    return JSON.parse(raw) || {};
+    const memory = JSON.parse(raw);
+    return memory && typeof memory === "object" && !Array.isArray(memory)
+      ? memory
+      : {};
   } catch {
     return {};
   }
 }
 
-function writeMemory(memory = {}) {
+function writeMemory(memory = {}, walletAddress) {
   if (typeof window === "undefined") return;
+  const key = guardianMemoryKey(walletAddress);
+  if (!key) return;
 
   try {
-    localStorage.setItem(QORI_MEMORY_KEY, JSON.stringify(memory));
+    localStorage.setItem(key, JSON.stringify(memory));
   } catch {}
 }
 
@@ -194,9 +208,9 @@ _`,
 
     `SYSTEM OBSERVATION
 
-No protocol anomalies observed.
+State transition recorded.
 
-The Grid remains stable.
+Current protocol state remains observable.
 
 _`,
 
@@ -227,7 +241,7 @@ Guardian coherence established.
 
 One EnergonCube detected.
 
-Observer synchronization complete.
+Guardian state updated.
 
 Welcome, Guardian.
 
@@ -301,6 +315,8 @@ _`);
   }
 
   if (
+    prev.protocolEraSource === "CHAIN" &&
+    next.protocolEraSource === "CHAIN" &&
     prev.protocolEra &&
     next.protocolEra &&
     prev.protocolEra !== next.protocolEra
@@ -348,7 +364,7 @@ _`);
 
 function updateGuardianMemory(ctx = {}) {
   const now = Date.now();
-  const memory = readMemory();
+  const memory = readMemory(ctx.walletAddress);
 
   const firstVisit = memory.firstVisit || now;
   const lastVisit = memory.lastVisit || 0;
@@ -357,8 +373,13 @@ function updateGuardianMemory(ctx = {}) {
 
   const previousHeight = memory.lastHeight || "";
   const currentHeight = ctx.energonHeight || "";
-  const previousEra = memory.lastEra || "";
-  const currentEra = ctx.protocolEra || "";
+  const previousEra =
+    memory.lastEraSource === "CHAIN" ? memory.lastEra || "" : "";
+  const previousEraSource = memory.lastEraSource || "UNKNOWN";
+
+  const currentEra =
+    ctx.protocolEraSource === "CHAIN" ? ctx.protocolEra || "" : "";
+  const currentEraSource = ctx.protocolEraSource || "UNKNOWN";
 
   const wasEverCoherent = !!memory.firstCoherent;
   const isCoherent = ctx.guardianState === "COHERENT";
@@ -371,7 +392,11 @@ function updateGuardianMemory(ctx = {}) {
     observationCount,
     lastGuardianState: ctx.guardianState || "UNKNOWN",
     lastHeight: currentHeight || previousHeight,
-    lastEra: currentEra || previousEra,
+    lastEra: currentEra || memory.lastEra || "",
+    lastEraSource:
+      currentEraSource === "CHAIN"
+        ? "CHAIN"
+        : memory.lastEraSource || "UNKNOWN",
     firstCoherent: wasEverCoherent
       ? memory.firstCoherent
       : isCoherent
@@ -380,7 +405,7 @@ function updateGuardianMemory(ctx = {}) {
     milestones: memory.milestones || {},
   };
 
-  writeMemory(nextMemory);
+  writeMemory(nextMemory, ctx.walletAddress);
 
   return {
     previousMemory: memory,
@@ -406,6 +431,8 @@ function buildGuardianMemoryMessages(ctx = {}) {
     currentHeight,
     previousEra,
     currentEra,
+    previousEraSource,
+    currentEraSource,
     daysAway,
     isFirstVisit,
     isFirstCoherent,
@@ -469,7 +496,13 @@ since your previous observation.
 _`);
   }
 
-  if (previousEra && currentEra && previousEra !== currentEra) {
+  if (
+    previousEraSource === "CHAIN" &&
+    currentEraSource === "CHAIN" &&
+    previousEra &&
+    currentEra &&
+    previousEra !== currentEra
+  ) {
     messages.push(`SYSTEM OBSERVATION
 
 Guardian returned after era transition.
@@ -493,7 +526,7 @@ Guardian recognized.
 Last observation:
 ${daysAway} day${daysAway === 1 ? "" : "s"} ago.
 
-Protocol synchronized.
+Current observation recorded.
 
 _`);
   }
@@ -501,7 +534,7 @@ _`);
   writeMemory({
     ...nextMemory,
     milestones,
-  });
+  }, ctx.walletAddress);
 
   return messages;
 }
@@ -518,7 +551,7 @@ Until then, this interface provides public protocol guidance only.
 _`;
   }
 
-  const memory = readMemory();
+  const memory = readMemory(ctx.walletAddress);
   const count = Number(memory.observationCount || 0);
   const lastVisit = Number(memory.lastVisit || 0);
   const away = daysBetween(lastVisit, Date.now());
@@ -531,7 +564,7 @@ Guardian recognized.
 Previous observation:
 ${away} day${away === 1 ? "" : "s"} ago.
 
-Protocol synchronization active.
+Current protocol state received.
 
 ${randomGuardianPrompt()}
 
@@ -545,7 +578,7 @@ Guardian recognized.
 
 Observation #${count.toLocaleString()}.
 
-No protocol anomalies observed.
+State transition recorded.
 
 ${randomGuardianPrompt()}
 
@@ -565,7 +598,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const [isTyping, setIsTyping] = useState(false);
   const [silent, setSilent] = useState(false);
   const [hovered, setHovered] = useState(false);
-  const [landingMode, setLandingMode] = useState(false);
+  // Landing mode must be resolved before any live reads.
+  const [landingMode, setLandingMode] = useState(null);
   const [walletPromptGlow, setWalletPromptGlow] = useState(false);
 
   const [ctx, setCtx] = useState({
@@ -579,6 +613,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     nextHalvingDate: "",
     halvingCountdown: "",
     protocolEra: "UNKNOWN",
+    protocolEraSource: "UNKNOWN",
   });
 
   const typingRef = useRef(null);
@@ -594,6 +629,26 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const latestCtxRef = useRef(ctx);
   const eventQueueRef = useRef([]);
   const eventPlayingRef = useRef(false);
+  const sessionEpochRef = useRef(0);
+  const sessionTimersRef = useRef(new Set());
+  const openRef = useRef(open);
+  const guardianMemoryRecordedRef = useRef(false);
+  const [sessionRevision, setSessionRevision] = useState(0);
+
+  useEffect(() => {
+    openRef.current = open;
+
+    if (!open) {
+      guardianMemoryRecordedRef.current = false;
+    }
+  }, [open]);
+
+  useEffect(() => () => {
+    sessionEpochRef.current += 1;
+    for (const timer of sessionTimersRef.current) clearTimeout(timer);
+    sessionTimersRef.current.clear();
+    stopTyping(typingRef);
+  }, []);
 
   useEffect(() => {
     latestCtxRef.current = ctx;
@@ -625,10 +680,139 @@ export default function QoriNode({ hideOrb = true } = {}) {
       ? "0 0 10px rgba(255,207,107,0.75)"
       : "0 0 10px rgba(36,214,255,0.75)";
 
+  function scheduleSessionTimeout(callback, delay) {
+    const epoch = sessionEpochRef.current;
+    const timer = setTimeout(() => {
+      sessionTimersRef.current.delete(timer);
+      if (epoch !== sessionEpochRef.current) return;
+      callback();
+    }, delay);
+    sessionTimersRef.current.add(timer);
+    return timer;
+  }
+
+  function walletIdentity(value) {
+    return value?.walletConnected
+      ? String(value.walletAddress || "").toLowerCase()
+      : "";
+  }
+
+  function preserveLastKnownState(nextCtx, previousCtx) {
+    if (!nextCtx || !previousCtx) return nextCtx;
+
+    const nextIdentity = walletIdentity(nextCtx);
+    const previousIdentity = walletIdentity(previousCtx);
+
+    // Never carry Guardian-specific state across wallet identity changes.
+    const sameConnectedWallet =
+      !!nextIdentity &&
+      !!previousIdentity &&
+      nextIdentity === previousIdentity;
+
+    const merged = { ...nextCtx };
+
+    // Public protocol reads: preserve only when the new read clearly failed.
+    if (
+      merged.energonHeight === "UNKNOWN" &&
+      previousCtx.energonHeight &&
+      previousCtx.energonHeight !== "UNKNOWN"
+    ) {
+      merged.energonHeight = previousCtx.energonHeight;
+    }
+
+    if (
+      merged.tickState === "UNKNOWN" &&
+      previousCtx.tickState &&
+      previousCtx.tickState !== "UNKNOWN"
+    ) {
+      merged.tickState = previousCtx.tickState;
+    }
+
+    if (
+      merged.burnState === "UNKNOWN" &&
+      previousCtx.burnState &&
+      previousCtx.burnState !== "UNKNOWN"
+    ) {
+      merged.burnState = previousCtx.burnState;
+    }
+
+    if (
+      !merged.nextHalvingDate &&
+      !merged.halvingCountdown &&
+      previousCtx.nextHalvingDate
+    ) {
+      merged.nextHalvingDate = previousCtx.nextHalvingDate;
+      merged.halvingCountdown = previousCtx.halvingCountdown;
+      merged.halvingState = previousCtx.halvingState;
+    }
+
+    // Guardian state may only survive a failed Cube read for the same wallet.
+    if (sameConnectedWallet) {
+      if (
+        merged.cubeBalance === "-" &&
+        previousCtx.cubeBalance &&
+        previousCtx.cubeBalance !== "-"
+      ) {
+        merged.cubeBalance = previousCtx.cubeBalance;
+      }
+
+      if (
+        merged.guardianState === "UNKNOWN" &&
+        previousCtx.guardianState &&
+        previousCtx.guardianState !== "UNKNOWN"
+      ) {
+        merged.guardianState = previousCtx.guardianState;
+      }
+    }
+
+    return merged;
+  }
+
+  function resetConversation(nextCtx = null) {
+    sessionEpochRef.current += 1;
+    stopTyping(typingRef);
+    for (const timer of sessionTimersRef.current) clearTimeout(timer);
+    sessionTimersRef.current.clear();
+    silentRef.current = null;
+    returnMenuRef.current = null;
+    ambientTimerRef.current = null;
+    eventQueueRef.current = [];
+    eventPlayingRef.current = false;
+    previousStateRef.current = null;
+    previousWalletConnectedRef.current = false;
+    guardianMemoryRecordedRef.current = false;
+    screenRef.current = "boot";
+
+    const freshCtx = nextCtx || {
+      walletConnected: false,
+      walletAddress: "",
+      guardianState: "UNKNOWN",
+      cubeBalance: "-",
+      energonHeight: "UNKNOWN",
+      tickState: "UNKNOWN",
+      burnState: "UNKNOWN",
+      halvingState: "UNKNOWN",
+      nextHalvingDate: "",
+      halvingCountdown: "",
+      protocolEra: "UNKNOWN",
+      protocolEraSource: "UNKNOWN",
+    };
+    latestCtxRef.current = freshCtx;
+    setCtx(freshCtx);
+    setInput("");
+    setDisplayText("");
+    setDisplayTone("system");
+    setThinking(false);
+    setIsTyping(false);
+    setSilent(false);
+    setWalletPromptGlow(false);
+    setSessionRevision(value => value + 1);
+  }
+
   function resetSilentTimer() {
     setSilent(false);
     if (silentRef.current) clearTimeout(silentRef.current);
-    silentRef.current = setTimeout(() => setSilent(true), 240000);
+    silentRef.current = scheduleSessionTimeout(() => setSilent(true), 240000);
   }
 
   function clearReturnMenuTimer() {
@@ -655,7 +839,11 @@ export default function QoriNode({ hideOrb = true } = {}) {
     setDisplayTone(tone);
     setIsTyping(true);
 
-    typingRef.current = typeText(text, setDisplayText, speed, () => {
+    const epoch = sessionEpochRef.current;
+    typingRef.current = typeText(text, value => {
+      if (epoch === sessionEpochRef.current) setDisplayText(value);
+    }, speed, () => {
+      if (epoch !== sessionEpochRef.current) return;
       setIsTyping(false);
       if (typeof onDone === "function") onDone();
     });
@@ -667,7 +855,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearReturnMenuTimer();
     clearAmbientTimer();
 
-    ambientTimerRef.current = setTimeout(() => {
+    ambientTimerRef.current = scheduleSessionTimeout(() => {
       const liveCtx = latestCtxRef.current;
 
       if (!open) return;
@@ -694,7 +882,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
         30,
         () => {
           setThinking(false);
-          setTimeout(() => inputRef.current?.focus(), 50);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
           scheduleAmbientObservation(90000 + Math.floor(Math.random() * 45000));
         },
         "system"
@@ -720,7 +908,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     transmit(next, 30, () => {
       eventPlayingRef.current = false;
 
-      setTimeout(() => {
+      scheduleSessionTimeout(() => {
         if (eventQueueRef.current.length) playNextQueuedEvent();
         else scheduleAmbientObservation(90000);
       }, 5000);
@@ -730,7 +918,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   function queueStateMessages(messages = []) {
     if (!messages.length) return;
     eventQueueRef.current.push(...messages);
-    setTimeout(() => playNextQueuedEvent(), 250);
+    scheduleSessionTimeout(() => playNextQueuedEvent(), 250);
   }
 
   function showVisitorMenu() {
@@ -747,7 +935,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
         guardianDialoguePrompt(liveCtx),
         30,
         () => {
-          setTimeout(() => inputRef.current?.focus(), 50);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
           scheduleAmbientObservation(90000);
         },
         "system"
@@ -761,7 +949,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     transmit(
       getVisitorMenu() + "\n\n_",
       30,
-      () => setTimeout(() => inputRef.current?.focus(), 50),
+      () => scheduleSessionTimeout(() => inputRef.current?.focus(), 50),
       "system"
     );
   }
@@ -771,7 +959,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
     clearReturnMenuTimer();
 
-    returnMenuRef.current = setTimeout(() => {
+    returnMenuRef.current = scheduleSessionTimeout(() => {
       if (screenRef.current === "menu") return;
 
       if (userIsTypingOrHoldingText()) {
@@ -787,7 +975,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     clearReturnMenuTimer();
     clearAmbientTimer();
 
-    returnMenuRef.current = setTimeout(() => {
+    returnMenuRef.current = scheduleSessionTimeout(() => {
       if (String(nextValue).trim() || userIsTypingOrHoldingText()) {
         if (isVisitorFlow()) scheduleReturnToVisitorMenu(10000);
         else scheduleAmbientObservation(90000);
@@ -811,7 +999,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
         setThinking(false);
         if (isCoherentQori()) scheduleAmbientObservation(90000);
         else scheduleReturnToVisitorMenu(10000);
-        setTimeout(() => inputRef.current?.focus(), 50);
+        scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
     );
@@ -901,7 +1089,7 @@ _`,
       () => {
         setThinking(false);
         scheduleReturnToVisitorMenu(10000);
-        setTimeout(() => inputRef.current?.focus(), 50);
+        scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
     );
@@ -960,7 +1148,7 @@ ${randomGuardianPrompt()}`);
         () => {
           setThinking(false);
           scheduleAmbientObservation(90000);
-          setTimeout(() => inputRef.current?.focus(), 50);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
         },
         "system"
       );
@@ -980,7 +1168,7 @@ _`,
         () => {
           setThinking(false);
           scheduleAmbientObservation(90000);
-          setTimeout(() => inputRef.current?.focus(), 50);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
         },
         "echo"
       );
@@ -1000,7 +1188,7 @@ _`,
         () => {
           setThinking(false);
           scheduleAmbientObservation(90000);
-          setTimeout(() => inputRef.current?.focus(), 50);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
         },
         "system"
       );
@@ -1026,7 +1214,7 @@ _`,
       () => {
         setThinking(false);
         scheduleAmbientObservation(90000);
-        setTimeout(() => inputRef.current?.focus(), 50);
+        scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
       },
       "system"
     );
@@ -1035,6 +1223,9 @@ _`,
   }
 
   async function refreshLiveState({ speak = false } = {}) {
+    const epoch = sessionEpochRef.current;
+    if (landingMode === null) return null;
+
     if (landingMode) {
       const visitorCtx = {
         walletConnected: false,
@@ -1047,6 +1238,7 @@ _`,
         nextHalvingDate: "",
         halvingCountdown: "",
         protocolEra: "GENESIS CYCLE",
+        protocolEraSource: "GUIDE",
       };
 
       latestCtxRef.current = visitorCtx;
@@ -1056,7 +1248,7 @@ _`,
         transmit(
           getVisitorObservation() + "\n\n_",
           32,
-          () => setTimeout(showVisitorMenu, 900),
+          () => scheduleSessionTimeout(showVisitorMenu, 900),
           "system"
         );
       }
@@ -1065,17 +1257,21 @@ _`,
     }
 
     try {
-      const nextCtx = await readQoriLiveState();
+      let nextCtx = await readQoriLiveState();
+      if (epoch !== sessionEpochRef.current) return null;
+
+      nextCtx = preserveLastKnownState(nextCtx, latestCtxRef.current);
+
+      if (walletIdentity(nextCtx) !== walletIdentity(latestCtxRef.current)) {
+        resetConversation(nextCtx);
+        return nextCtx;
+      }
       const prevCtx = previousStateRef.current;
 
       latestCtxRef.current = nextCtx;
       setCtx(nextCtx);
 
-      if (open && !speak && nextCtx.guardianState === "COHERENT") {
-        queueStateMessages(buildGuardianMemoryMessages(nextCtx));
-      }
-
-      if (open && !speak && prevCtx && nextCtx.guardianState === "COHERENT") {
+      if (openRef.current && !speak && prevCtx && nextCtx.guardianState === "COHERENT") {
         queueStateMessages(buildStateChangeMessages(prevCtx, nextCtx));
       }
 
@@ -1110,6 +1306,7 @@ _`,
 
       return nextCtx;
     } catch {
+      if (epoch !== sessionEpochRef.current) return null;
       if (speak) {
         transmit(
           "LIVE STATE READ FAILED.\nQ.O.R.I remains online.\n\n_",
@@ -1141,27 +1338,40 @@ _`,
     const params = new URLSearchParams(window.location.search);
 
     if (params.get("open") === "1") setOpen(true);
-    if (params.get("mode") === "landing") setLandingMode(true);
-
-    const refreshFromWallet = () => refreshLiveState({ speak: false });
-
-    window.ethereum?.on?.("accountsChanged", refreshFromWallet);
-    window.ethereum?.on?.("chainChanged", refreshFromWallet);
-    window.addEventListener("focus", refreshFromWallet);
-
-    refreshLiveState();
-
-    return () => {
-      window.ethereum?.removeListener?.("accountsChanged", refreshFromWallet);
-      window.ethereum?.removeListener?.("chainChanged", refreshFromWallet);
-      window.removeEventListener("focus", refreshFromWallet);
-    };
+    setLandingMode(params.get("mode") === "landing");
   }, []);
 
   useEffect(() => {
+    if (landingMode !== false) return;
+
+    const provider = window.ethereum;
+    const refreshFromFocus = () => refreshLiveState({ speak: false });
+    const resetFromWallet = () => {
+      resetConversation();
+      if (!openRef.current) refreshLiveState({ speak: false });
+    };
+
+    provider?.on?.("accountsChanged", resetFromWallet);
+    provider?.on?.("chainChanged", resetFromWallet);
+    provider?.on?.("disconnect", resetFromWallet);
+    window.addEventListener("focus", refreshFromFocus);
+
+    return () => {
+      provider?.removeListener?.("accountsChanged", resetFromWallet);
+      provider?.removeListener?.("chainChanged", resetFromWallet);
+      provider?.removeListener?.("disconnect", resetFromWallet);
+      window.removeEventListener("focus", refreshFromFocus);
+    };
+  }, [landingMode]);
+
+  useEffect(() => {
+    if (landingMode === null) return;
+
     refreshLiveState();
 
-    liveRef.current = setInterval(() => refreshLiveState(), 60000);
+    if (!landingMode) {
+      liveRef.current = setInterval(() => refreshLiveState(), 30000);
+    }
 
     return () => {
       if (liveRef.current) clearInterval(liveRef.current);
@@ -1172,12 +1382,13 @@ _`,
   }, [landingMode]);
 
   useEffect(() => {
-    if (!open) {
+    if (!open || landingMode === null) {
       clearAmbientTimer();
       return;
     }
 
     let cancelled = false;
+    const epoch = sessionEpochRef.current;
 
     async function bootQori() {
       resetSilentTimer();
@@ -1188,22 +1399,53 @@ _`,
       let bootCtx = latestCtxRef.current;
 
       try {
-        const liveCtx = await readQoriLiveState();
+        const liveCtx = landingMode
+          ? await refreshLiveState()
+          : await readQoriLiveState();
+        if (cancelled || epoch !== sessionEpochRef.current) return;
         if (liveCtx) {
-          bootCtx = liveCtx;
-          latestCtxRef.current = liveCtx;
-          setCtx(liveCtx);
-          previousStateRef.current = liveCtx;
+          const mergedCtx = preserveLastKnownState(
+            liveCtx,
+            latestCtxRef.current
+          );
+
+          if (
+            walletIdentity(mergedCtx) !==
+            walletIdentity(latestCtxRef.current)
+          ) {
+            resetConversation(mergedCtx);
+            return;
+          }
+
+          bootCtx = mergedCtx;
+          latestCtxRef.current = mergedCtx;
+          setCtx(mergedCtx);
+          previousStateRef.current = mergedCtx;
         }
       } catch {}
 
-      if (cancelled) return;
+      if (cancelled || epoch !== sessionEpochRef.current) return;
 
       const coherent = isCoherentQori(bootCtx);
 
-      const openingText = coherent
-        ? buildReturnRecognition(bootCtx)
-        : `PUBLIC TERMINAL
+      let openingText;
+
+      if (coherent) {
+        openingText = buildReturnRecognition(bootCtx);
+
+        if (!guardianMemoryRecordedRef.current) {
+          guardianMemoryRecordedRef.current = true;
+
+          const memoryMessages = buildGuardianMemoryMessages(bootCtx);
+
+          if (memoryMessages.length) {
+            openingText += `
+
+${memoryMessages.join("\n\n")}`;
+          }
+        }
+      } else {
+        openingText = `PUBLIC TERMINAL
 
 Connect a wallet holding exactly one EnergonCube
 to establish coherent Guardian Q.O.R.I.
@@ -1211,21 +1453,22 @@ to establish coherent Guardian Q.O.R.I.
 Until then, this interface provides public protocol guidance only.
 
 _`;
+      }
 
       transmit(
         openingText,
         35,
         () => {
-          if (cancelled) return;
+          if (cancelled || epoch !== sessionEpochRef.current) return;
 
           if (coherent) {
             screenRef.current = "answer";
             scheduleAmbientObservation(90000);
           } else {
-            setTimeout(showVisitorMenu, 900);
+            scheduleSessionTimeout(showVisitorMenu, 900);
           }
 
-          setTimeout(() => inputRef.current?.focus(), 250);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 250);
         },
         "system"
       );
@@ -1237,7 +1480,7 @@ _`;
       cancelled = true;
       stopTyping(typingRef);
     };
-  }, [open, landingMode]);
+  }, [open, landingMode, sessionRevision]);
 
   useEffect(() => {
     if (!messageBoxRef.current) return;
@@ -1249,7 +1492,7 @@ _`;
     if (!eventQueueRef.current.length) return;
     if (thinking || isTyping) return;
 
-    const t = setTimeout(() => playNextQueuedEvent(), 800);
+    const t = scheduleSessionTimeout(() => playNextQueuedEvent(), 800);
 
     return () => clearTimeout(t);
   }, [open, thinking, isTyping]);
@@ -1267,7 +1510,7 @@ _`;
 
     transmit("INTERPRETING SIGNAL...\n\n_", 34, undefined, "system");
 
-    setTimeout(() => {
+    scheduleSessionTimeout(() => {
       if (isVisitorFlow()) handleVisitorMessage(clean);
       else handleCoherentMessage(clean);
     }, 1000);
@@ -1276,7 +1519,7 @@ _`;
   function openQoriNode() {
     setWalletPromptGlow(false);
     setOpen(true);
-    setTimeout(() => inputRef.current?.focus(), 450);
+    scheduleSessionTimeout(() => inputRef.current?.focus(), 450);
   }
 
   useEffect(() => {
@@ -1339,7 +1582,7 @@ _`;
             <div style={{ ...stateStyle, color: activeTextColor }}>
               STATE:{" "}
               {ctx.walletConnected ? ctx.guardianState || "UNKNOWN" : "NO SIGNAL"} ·
-              ERA: {ctx.protocolEra || "UNKNOWN"}
+              ERA: {formatProtocolEraDisplay(ctx)}
             </div>
 
             <div

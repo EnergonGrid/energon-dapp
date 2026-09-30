@@ -1,12 +1,9 @@
-function normalize(input = "") {
-    return String(input).toLowerCase().trim().replace(/\s+/g, " ");
-  }
-  
-  function hasAny(q, words = []) {
-    return words.some((word) => q === word || q.includes(word));
-  }
-  
-  export function communityAssistant(input = "") {
+import {
+  normalizeText as normalize,
+  hasAnyPhrase as hasAny,
+} from "./matchUtils";
+
+export function communityAssistant(input = "") {
     const q = normalize(input);
   
     if (hasAny(q, ["twitter", "x", "tweet", "post"])) {

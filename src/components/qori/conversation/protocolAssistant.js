@@ -1,3 +1,5 @@
+import { formatProtocolEraDisplay } from "../qoriState";
+
 function formatHeight(v = "") {
     const n = Number(String(v || "").replace(/,/g, "").trim());
     if (!Number.isFinite(n)) return v || "UNKNOWN";
@@ -23,7 +25,7 @@ function formatHeight(v = "") {
   ${ctx.halvingState || "UNKNOWN"}
   
   Era:
-  ${ctx.protocolEra || "UNKNOWN"}
+  ${formatProtocolEraDisplay(ctx)}
   
   Q.O.R.I interprets.
   The contracts define state.

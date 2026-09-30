@@ -1,16 +1,10 @@
-function normalize(input = "") {
-  return String(input)
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, " ");
-}
+import {
+  normalizeText as normalize,
+  hasAnyPhrase as hasAny,
+} from "./conversation/matchUtils";
 
 function pick(list = []) {
   return list[Math.floor(Math.random() * list.length)] || "";
-}
-
-function hasAny(q, words = []) {
-  return words.some((word) => q.includes(word));
 }
 
 const VISITOR_RETURN_PROMPTS = [
@@ -55,36 +49,39 @@ const KNOWLEDGE = [
     responses: [
       `ENERGON
 
-Energon is a deterministic protocol built on Flare.
-
-The system operates through fixed rules,
+Energon is a protocol built on Flare
+around visible rules,
 observable state,
-and protocol progression.
+and on-chain progression.
 
-No admins.
-No hidden automation.
-No operator intervention.
+Core Energon progression is permissionless.
 
-Energon does not react to hype,
-emotion,
-or social consensus.
+When the required time conditions are met,
+a valid on-chain tick may advance the system.
 
-The protocol advances only when
-its conditions are met.
+No hidden scheduler is required
+to advance Energon Height.
 
-EON is the native asset of the system.
+Some Energon contracts retain
+explicit configuration or controller roles.
+
+Some Energon Network contracts
+are ownerless
+and expose no upgrade mechanism.
+
+EON is the Energon protocol token.
 
 Maximum supply:
 30,000,000 EON.
 
 Energon was designed around
 long-form progression,
-guardian participation,
+Guardian participation,
 and observable protocol state.
 
-Q.O.R.I observes the system.
+Q.O.R.I observes and explains.
 
-Q.O.R.I does not control it.`,
+Q.O.R.I does not control protocol state.`,
     ],
   },
 
@@ -121,8 +118,11 @@ The Grid responds to state.
 
 It does not create state.
 
-The system remains live
-whether anyone is watching or not.`,
+On-chain state persists
+whether or not an interface is watching.
+
+Protocol progression still requires
+the valid on-chain actions defined by the contracts.`,
     ],
   },
 
@@ -230,9 +230,10 @@ One Guardian.`,
     responses: [
       `ENERGONGRID
 
-EnergonGrid is the live environment around the protocol.
+EnergonGrid is the user-facing environment
+around the protocol.
 
-It is where the system becomes visible through state,
+It is where protocol state becomes visible through
 interfaces,
 Observer,
 and Guardian access.`,
@@ -260,14 +261,260 @@ FRACTURED`,
   },
 
   {
+    keys: ["energon network", "energ on network", "network node", "energon node"],
+    responses: [
+      `ENERGON NETWORK
+
+EnergonNetwork is the
+Node creation and identity layer.
+
+Recorded Node identities
+and assigned Node IDs are permanent
+under the contract rules.
+
+It deploys authentic Genesis
+EnergonProjectAdapter contracts
+and records the adapters it created.
+
+After an adapter is activated,
+the Network can assign it
+a permanent Node ID.
+
+EnergonNetwork has no owner,
+administrator,
+pause mechanism,
+upgrade mechanism,
+adapter replacement mechanism,
+or Node deletion mechanism.
+
+The Network identifies Nodes.
+
+It does not rewrite their payment law.`,
+    ],
+  },
+
+  {
+    keys: [
+      "energon project adapter",
+      "project adapter",
+      "epa",
+      "eflow",
+      "e flow",
+    ],
+    responses: [
+      `ENERGON PROJECT ADAPTER
+
+The EnergonProjectAdapter connects
+a participating project
+to the Energon Main EVault.
+
+Activation requires exactly
+2,000 WFLR.
+
+After activation,
+supported project payments use:
+
+• EON
+• USDT0
+
+Each successful payment is divided:
+
+90%:
+Project treasury
+
+10%:
+Main EVault
+
+The Genesis adapter has no owner,
+administrator,
+pause,
+upgrade,
+mutable treasury,
+or mutable payment split.
+
+Completed payments create
+permanent EFlow receipts.`,
+    ],
+  },
+
+  {
+    keys: ["evault", "main evault", "energon evault"],
+    responses: [
+      `MAIN EVAULT
+
+EVault is Energon's on-chain
+value and Guardian-action layer.
+
+It supports protocol contributions,
+Guardian registration,
+claim accounting,
+reserve protections,
+maturity rules,
+and payout controls.
+
+EVault has a controller role,
+but that authority is constrained
+by contract rules and delays.
+
+For example,
+controller transfer is delayed,
+and core EON and USDT0 reserves
+cannot be withdrawn
+through the controller withdrawal path.
+
+Guardian thresholds
+and other deployment-sensitive values
+should be read from the live contract.
+
+Q.O.R.I should not guess them.`,
+    ],
+  },
+
+  {
+    keys: ["node registry", "energon node registry", "listing registry"],
+    responses: [
+      `ENERGON NODE REGISTRY
+
+The Node Registry is the coordination
+and reputation layer
+for active Energon Network Nodes.
+
+It records:
+
+• Listings
+• Listing requests
+• Listing versions
+• verified EFlow reputation
+• SERVICE reputation
+
+The Registry does not custody
+project-payment tokens.
+
+It does not custody NFTs.
+
+It does not execute EFlows.
+
+Specialized contracts handle custody
+when custody is required.`,
+    ],
+  },
+
+  {
+    keys: [
+      "service resolution",
+      "energon service resolution",
+      "service escrow",
+    ],
+    responses: [
+      `SERVICE RESOLUTION
+
+EnergonServiceResolution is the
+deterministic custody and resolution layer
+for SERVICE Listings.
+
+Provider backing and requester commitment
+use the same supported asset
+and the same agreed amount.
+
+After completion,
+direct requester release returns
+the provider backing
+and routes the requester commitment:
+
+90%:
+Provider
+
+10%:
+Main EVault
+
+The contract has no owner,
+administrator,
+pause,
+upgrade,
+or arbitrary withdrawal mechanism.`,
+    ],
+  },
+
+  {
+    keys: [
+      "nft delivery",
+      "energon nft delivery",
+      "nft custody",
+    ],
+    responses: [
+      `NFT DELIVERY
+
+EnergonNFTDelivery is the temporary
+ERC-721 custody layer
+for an exact Registry NFT request.
+
+The Registry supplies the exact:
+
+• seller
+• requester
+• NFT contract
+• token ID
+• expiration terms
+
+NFT Delivery does not price NFTs,
+process EFlows,
+or accept EON or USDT0 payments.
+
+It has no owner,
+administrator,
+governance setter,
+or upgrade mechanism.`,
+    ],
+  },
+
+  {
+    keys: [
+      "established mark",
+      "energon established mark",
+      "node mark",
+    ],
+    responses: [
+      `ESTABLISHED MARK
+
+The Established Mark is a permanent
+on-chain recognition system
+for active Energon Nodes.
+
+A Node becomes eligible
+365 days after its recorded activation.
+
+One Node may permanently claim
+one Established Mark.
+
+Only the Node controller may claim.
+
+The fixed price is:
+
+5 USDT0
+
+or the current deterministic
+EON equivalent.
+
+The contribution is routed
+to Main EVault.`,
+    ],
+  },
+
+  {
     keys: ["energon", "project", "protocol"],
     responses: [
       `ENERGON
 
 Energon is the protocol.
 
-It runs by rule,
-not by operator control.
+Its progression and Network layers
+use visible on-chain rules.
+
+Some contracts contain
+explicit configuration roles.
+
+Other contracts are
+ownerless and immutable.
 
 Maximum EON supply:
 30,000,000.`,

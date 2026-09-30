@@ -1,12 +1,9 @@
-function normalize(input = "") {
-    return String(input).toLowerCase().trim().replace(/\s+/g, " ");
-  }
-  
-  function includesAny(q, list = []) {
-    return list.some((phrase) => q === phrase || q.includes(phrase));
-  }
-  
-  function pick(list = []) {
+import {
+  normalizeText as normalize,
+  hasAnyPhrase as includesAny,
+} from "./conversation/matchUtils";
+
+function pick(list = []) {
     return list[Math.floor(Math.random() * list.length)] || "";
   }
   
@@ -21,7 +18,9 @@ function normalize(input = "") {
   
   Not hype.
   Not promises.
-  Not someone pressing buttons behind the curtain.
+  Not hidden control
+  deciding protocol progression
+  behind the curtain.
   
   A protocol should be observable.
   
@@ -293,7 +292,8 @@ function normalize(input = "") {
   
   Energon was not designed for one moment.
   
-  It was designed to continue.
+  It was designed for
+  long-form progression.
   
   — Creator`,
       ],
@@ -309,10 +309,12 @@ function normalize(input = "") {
   
   No mining race.
   No fake roadmap.
-  No hidden operator.
+  No hidden operator required
+  for protocol progression.
   
-  Just a system that moves
-  when the rules allow it.
+  Just a system that can advance
+  when the rules allow it
+  and a valid on-chain action occurs.
   
   That was enough reason to build.
   

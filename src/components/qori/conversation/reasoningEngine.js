@@ -1,11 +1,15 @@
-function normalize(input = "") {
-  return String(input).toLowerCase().trim().replace(/\s+/g, " ");
-}
+import {
+  normalizeText as normalize,
+  matchesPhrase,
+} from "./matchUtils";
 
 function scoreKeywords(q, keywords = []) {
   return keywords.reduce((score, word) => {
-    if (q === word) return score + 3;
-    if (q.includes(word)) return score + 1;
+    const normalizedWord = normalize(word);
+
+    if (q === normalizedWord) return score + 3;
+    if (matchesPhrase(q, normalizedWord)) return score + 1;
+
     return score;
   }, 0);
 }
@@ -126,19 +130,4 @@ export function shouldUseSpecialist(reasoning = {}) {
   return ["builder", "observe", "community", "explore"].includes(
     reasoning.primarySpecialist
   );
-}
-
-export function hasSecondarySpecialist(reasoning = {}) {
-  return !!reasoning.secondarySpecialist;
-}
-
-export function reasoningTrace(reasoning = {}) {
-  return {
-    intent: reasoning.intent || "conversation",
-    primarySpecialist: reasoning.primarySpecialist || "",
-    secondarySpecialist: reasoning.secondarySpecialist || "",
-    rememberedTopic: reasoning.rememberedTopic || "",
-    guardianState: reasoning.guardianState || "UNKNOWN",
-    protocolEra: reasoning.protocolEra || "UNKNOWN",
-  };
 }

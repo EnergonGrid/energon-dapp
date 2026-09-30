@@ -1,12 +1,9 @@
-function normalize(input = "") {
-    return String(input).toLowerCase().trim().replace(/\s+/g, " ");
-  }
-  
-  function hasAny(q, words = []) {
-    return words.some((word) => q === word || q.includes(word));
-  }
-  
-  export function builderAssistant(input = "") {
+import {
+  normalizeText as normalize,
+  hasAnyPhrase as hasAny,
+} from "./matchUtils";
+
+export function builderAssistant(input = "") {
     const q = normalize(input);
   
     if (

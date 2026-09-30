@@ -1,5 +1,4 @@
-import QoriNode from "@/components/qori/QoriNode";
-
+// QoriNode is already mounted globally by _app.js.
 export default function QoriPage() {
   return (
     <div
@@ -7,8 +6,6 @@ export default function QoriPage() {
         minHeight: "100vh",
         background: "#000",
       }}
-    >
-      <QoriNode />
-    </div>
+    />
   );
 }

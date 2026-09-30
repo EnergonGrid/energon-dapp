@@ -1,10 +1,7 @@
-function normalize(input = "") {
-  return String(input).toLowerCase().trim().replace(/\s+/g, " ");
-}
-
-function includesAny(q, words = []) {
-  return words.some((word) => q === word || q.includes(word));
-}
+import {
+  normalizeText as normalize,
+  hasAnyPhrase as includesAny,
+} from "./conversation/matchUtils";
 
 const VOCABULARY = [
   {
@@ -102,15 +99,17 @@ Protect the recovery phrase.`,
     match: ["seed phrase", "recovery phrase", "private key", "keys"],
     response: `RECOVERY PHRASE
 
-A recovery phrase is the master key to a wallet.
+A recovery phrase can restore access
+to the keys of a wallet.
 
-Anyone with it can control the assets.
+Anyone who obtains it may be able
+to control the associated assets.
 
-Never type it into a website.
+Never type it into an untrusted website.
 Never send it in a message.
 Never store it carelessly.
 
-The phrase is the wallet.`,
+Protect it like a private key.`,
   },
 
   {
@@ -144,14 +143,16 @@ Read before signing.`,
     match: ["ledger", "hardware wallet", "cold wallet", "cold storage"],
     response: `COLD STORAGE
 
-A hardware wallet keeps signing keys offline.
+A hardware wallet keeps private keys isolated
+from the general-purpose computer or phone
+and signs transactions on the device.
 
-This reduces exposure to browser attacks,
-fake websites,
-and infected devices.
+This can reduce exposure
+to some browser and device-based attacks.
 
-For serious holdings,
-cold storage is stronger than a hot wallet.`,
+Security still depends on safe backups,
+careful signing,
+and trusted device setup.`,
   },
 
   {
@@ -172,15 +173,21 @@ and avoid storing too much value in one place.`,
     match: ["metamask", "bifrost"],
     response: `WALLET OPTIONS
 
-Bifrost is strong for mobile Flare access.
+For Energon,
+Bifrost is the recommended mobile-first wallet.
 
-MetaMask is common for desktop use.
+MetaMask is supported for desktop use.
 
-Ledger is strongest for cold storage.
+Ledger can provide hardware-wallet key isolation
+for users who prefer that setup.
 
-The correct path depends on security,
-comfort,
-and access.`,
+Energon wallet priority:
+
+Bifrost → MetaMask → Ledger.
+
+The correct choice depends on device,
+security practices,
+and access needs.`,
   },
 
   {
@@ -421,7 +428,10 @@ EON is an ERC20 token.`,
 
 A token is a digital asset created on a blockchain.
 
-EON is the native Energon token.
+EON is the Energon protocol token.
+
+FLR is the native asset
+of the Flare network.
 
 EnergonCube is the Guardian access key.
 
@@ -499,23 +509,27 @@ It is a habit.`,
 A multisig requires multiple approvals
 before an action can happen.
 
-It reduces single-key risk.
+It can reduce dependence
+on a single signing key.
 
 For treasuries and important controls,
-multisig can be stronger than one wallet.`,
+it can provide additional authorization safeguards
+when configured and operated correctly.`,
   },
 
   {
     match: ["decentralized", "decentralization"],
     response: `DECENTRALIZATION
 
-Decentralization means control is not held
-by one person,
-one company,
-or one hidden operator.
+Decentralization describes distributing
+control, validation, or authority
+rather than relying on one party.
 
-The more a system depends on visible rules,
-the stronger it becomes.`,
+Different systems decentralize
+different parts of their operation.
+
+Visible on-chain rules make those rules
+independently inspectable.`,
   },
 
   {
@@ -536,12 +550,13 @@ to on-chain logic.`,
     match: ["ftso"],
     response: `FTSO
 
-FTSO is Flare's time series oracle system.
+FTSO is Flare's
+Time Series Oracle system.
 
-It helps provide decentralized data feeds
-for the network.
+It provides decentralized data feeds
+that applications on Flare can use.
 
-Q.O.R.I observes data layers
+Q.O.R.I may explain those data layers
 but does not control them.`,
   },
 
@@ -549,11 +564,13 @@ but does not control them.`,
     match: ["fassets", "fxrp"],
     response: `FASSETS
 
-FAssets are part of Flare's broader design
-for representing non-smart-contract assets
-inside smart contract environments.
+FAssets are part of Flare's system
+for bringing assets from networks
+without native smart-contract functionality
+into Flare's smart-contract environment.
 
-FXRP refers to XRP represented through that system.
+FXRP is the FAsset representation
+associated with XRP.
 
 This belongs to Flare's wider ecosystem.`,
   },
@@ -695,10 +712,13 @@ Security begins before the transaction.
 Check links.
 Verify contracts.
 Protect recovery phrases.
-Use hardware wallets when possible.
-Avoid panic clicking.
+Use hardware wallets when appropriate.
+Avoid rushed approvals.
 
-Most losses begin with one careless approval.`,
+A single malicious signature,
+approval,
+or exposed recovery phrase
+can put assets at risk.`,
   },
 
   {
@@ -1518,6 +1538,156 @@ on one point of failure.`,
   },
 
   {
+    match: ["energon network", "network node", "energon node"],
+    response: `ENERGON NETWORK
+
+EnergonNetwork is the permanent
+Node creation and identity layer.
+
+It deploys authentic Genesis adapters,
+records them,
+and assigns permanent Node IDs
+after adapter activation.
+
+It has no owner,
+administrator,
+pause,
+upgrade,
+adapter replacement,
+or Node deletion mechanism.`,
+  },
+
+  {
+    match: ["energon project adapter", "project adapter", "epa"],
+    response: `ENERGON PROJECT ADAPTER
+
+The EnergonProjectAdapter connects
+one participating project
+to Main EVault.
+
+Activation requires exactly
+2,000 WFLR.
+
+Project payments use EON or USDT0.
+
+Each payment is divided:
+
+90% to the project treasury.
+10% to Main EVault.
+
+The Genesis adapter is ownerless
+and its core configuration is immutable.`,
+  },
+
+  {
+    match: ["eflow", "e flow", "eflow receipt"],
+    response: `EFLOW
+
+An EFlow is a completed payment
+recorded through an
+EnergonProjectAdapter.
+
+The adapter stores a permanent receipt
+containing the payer,
+token,
+payment reference,
+total received,
+project share,
+EVault share,
+and timestamp.
+
+Other Energon contracts can verify
+that receipt on-chain.`,
+  },
+
+  {
+    match: ["node registry", "energon node registry"],
+    response: `NODE REGISTRY
+
+The Energon Node Registry
+coordinates Listings,
+requests,
+versioning,
+and reputation
+for active Energon Nodes.
+
+It does not custody payment tokens.
+
+It does not custody NFTs.
+
+It does not execute EFlows.
+
+Custody is delegated
+to specialized protocol contracts.`,
+  },
+
+  {
+    match: ["service resolution", "service escrow"],
+    response: `SERVICE RESOLUTION
+
+EnergonServiceResolution
+handles deterministic custody
+for SERVICE Listings.
+
+Provider backing and requester commitment
+use the same supported token
+and agreed amount.
+
+After successful completion
+and requester release:
+
+provider backing returns in full.
+
+The requester commitment is divided:
+
+90% to the provider.
+10% to Main EVault.`,
+  },
+
+  {
+    match: ["nft delivery", "nft custody"],
+    response: `NFT DELIVERY
+
+EnergonNFTDelivery temporarily secures
+one exact ERC-721 NFT
+for one exact Registry request.
+
+It receives the seller,
+requester,
+NFT contract,
+token ID,
+and expiration terms
+from the Registry.
+
+It does not price NFTs
+or process EFlows.`,
+  },
+
+  {
+    match: ["established mark", "node mark"],
+    response: `ESTABLISHED MARK
+
+An Established Mark is permanent
+on-chain recognition
+for an active Energon Node.
+
+Eligibility begins
+365 days after Node activation.
+
+Each Node may permanently claim
+one Mark.
+
+Only the Node controller may claim.
+
+Price:
+
+5 USDT0
+
+or the current deterministic
+EON equivalent.`,
+  },
+
+  {
     match: ["energon", "energon protocol"],
     response: `ENERGON
 
@@ -1632,14 +1802,24 @@ EMP deeper.`,
     match: ["evault", "vault"],
     response: `EVAULT
 
-EVault is the future value-layer concept
-for Energon.
+EVault is Energon's Main EVault contract.
 
-It should remain deterministic,
-self-sustaining,
-and rule-based.
+It provides on-chain logic for:
 
-No hidden dependency should control it.`,
+• contributions
+• Guardian registration
+• claims
+• reserve protections
+• maturity tiers
+• payout controls
+
+EVault includes a constrained
+controller role.
+
+Deployment-sensitive values,
+including the Guardian unlock threshold,
+must be read from the deployed contract
+rather than assumed by Q.O.R.I.`,
   },
 
   {
@@ -1741,10 +1921,12 @@ State should be observable.`,
 Off-chain automation can be useful,
 but it can also create hidden dependence.
 
-Energon avoids hidden schedulers
-for protocol progression.
+Energon core progression
+does not require a hidden scheduler.
 
-The system advances through visible conditions.`,
+The Controller advances
+when its on-chain time conditions are met
+and a permissionless tick transaction occurs.`,
   },
 
   {

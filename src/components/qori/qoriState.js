@@ -88,9 +88,14 @@ const PROTOCOL_ERAS = [
   "Terminal Era",
 ];
 
-function getProtocolEra() {
+function getProtocolEra(launchTimeSec = 0) {
   const now = Date.now();
-  const genesis = GENESIS_DATE.getTime();
+
+  const onChainLaunch = Number(launchTimeSec || 0);
+  const genesis =
+    Number.isFinite(onChainLaunch) && onChainLaunch > 0
+      ? onChainLaunch * 1000
+      : GENESIS_DATE.getTime();
 
   if (now <= genesis) return PROTOCOL_ERAS[0];
 
@@ -133,20 +138,55 @@ function formatNumber(value) {
   }
 }
 
-function getRpcUrl() {
-  const v = RPCS?.[MAINNET_CHAIN_ID];
+export function formatProtocolEraDisplay(ctx = {}) {
+  const era = String(ctx.protocolEra || "").trim();
+  const source = String(ctx.protocolEraSource || "UNKNOWN").trim();
 
-  if (Array.isArray(v)) return v.filter(Boolean)[0] || "";
-  if (typeof v === "string") return v;
+  if (!era || era === "UNKNOWN" || source === "UNKNOWN") {
+    return "UNKNOWN";
+  }
 
-  return "";
+  if (source === "FALLBACK") {
+    return `${era} · canonical fallback`;
+  }
+
+  return era;
+}
+
+function getRpcUrls() {
+  const value = RPCS?.[MAINNET_CHAIN_ID];
+
+  if (Array.isArray(value)) {
+    return [...new Set(value.filter(Boolean))];
+  }
+
+  if (typeof value === "string" && value) {
+    return [value];
+  }
+
+  return [];
+}
+
+async function createWorkingProvider() {
+  const urls = getRpcUrls();
+
+  for (const url of urls) {
+    try {
+      const provider = new ethers.JsonRpcProvider(url);
+      await provider.getBlockNumber();
+      return provider;
+    } catch {}
+  }
+
+  return null;
 }
 
 function createBaseCtx() {
   return {
     walletConnected: false,
     walletAddress: "",
-    guardianState: "NO KEY",
+    // An unread balance does not establish zero ownership.
+    guardianState: "UNKNOWN",
     cubeBalance: "-",
     energonHeight: "UNKNOWN",
     tickState: "UNKNOWN",
@@ -155,6 +195,7 @@ function createBaseCtx() {
     nextHalvingDate: "",
     halvingCountdown: "",
     protocolEra: getProtocolEra(),
+    protocolEraSource: "FALLBACK",
   };
 }
 
@@ -240,11 +281,11 @@ Burn Pool:
 ${ctx.burnState || "UNKNOWN"}
 
 Current Era:
-${ctx.protocolEra || getProtocolEra()}
+${formatProtocolEraDisplay(ctx)}
 
-The Grid remains stable.
+Live protocol state received.
 
-No protocol anomalies observed.
+Q.O.R.I reports only observable state.
 
 Q.O.R.I observes.
 Q.O.R.I does not intervene.`;
@@ -292,11 +333,42 @@ Q.O.R.I remains in public guidance mode.`;
 export async function readQoriLiveState() {
   const baseCtx = createBaseCtx();
 
-  try {
-    const rpcUrl = getRpcUrl();
-    if (!rpcUrl) return baseCtx;
+  // Resolve browser-wallet identity independently of public RPC health.
+  // A temporary public RPC failure must not look like a wallet disconnect.
+  let walletAddress = "";
 
-    const roProvider = new ethers.JsonRpcProvider(rpcUrl);
+  if (typeof window !== "undefined" && window.ethereum) {
+    try {
+      const chainId = await window.ethereum.request({
+        method: "eth_chainId",
+      });
+
+      const walletChainId = Number(chainId);
+
+      if (
+        Number.isFinite(walletChainId) &&
+        walletChainId === Number(MAINNET_CHAIN_ID)
+      ) {
+        const accounts = await window.ethereum.request({
+          method: "eth_accounts",
+        });
+
+        walletAddress = accounts?.[0] || "";
+
+        if (walletAddress) {
+          baseCtx.walletConnected = true;
+          baseCtx.walletAddress = walletAddress;
+        }
+      }
+    } catch {
+      // Leave wallet identity unresolved rather than inventing one.
+    }
+  }
+
+  try {
+    const roProvider = await createWorkingProvider();
+    if (!roProvider) return baseCtx;
+
     const cube = new ethers.Contract(CONTRACT_ADDRESS, ABI, roProvider);
 
     let ctrl = CONTROLLER_ADDRESS_LOCKED;
@@ -314,6 +386,12 @@ export async function readQoriLiveState() {
       try {
         const h = await controller.energonHeight();
         baseCtx.energonHeight = h.toString();
+      } catch {}
+
+      try {
+        const launch = await controller.launchTime();
+        baseCtx.protocolEra = getProtocolEra(launch.toString());
+        baseCtx.protocolEraSource = "CHAIN";
       } catch {}
 
       try {
@@ -342,36 +420,21 @@ export async function readQoriLiveState() {
           Number(lastHalving.toString()) + Number(interval.toString());
 
         if (next > 0) {
+          const nowSec = Math.floor(Date.now() / 1000);
+
           baseCtx.nextHalvingDate = formatDateFromUnix(next);
-          baseCtx.halvingCountdown = formatCountdown(
-            next - Math.floor(Date.now() / 1000)
-          );
+          baseCtx.halvingCountdown = formatCountdown(next - nowSec);
+          baseCtx.halvingState =
+            nowSec >= next ? "HALVING TIME REACHED" : "ACTIVE CYCLE";
         }
       } catch {}
     } catch {}
 
-    if (typeof window === "undefined" || !window.ethereum) {
-      return baseCtx;
-    }
-
-    let accounts = [];
-
-    try {
-      accounts = await window.ethereum.request({
-        method: "eth_accounts",
-      });
-    } catch {
-      return baseCtx;
-    }
-
-    const addr = accounts?.[0] || "";
+    const addr = walletAddress;
 
     if (!addr) {
       return baseCtx;
     }
-
-    baseCtx.walletConnected = true;
-    baseCtx.walletAddress = addr;
 
     try {
       const bal = await cube.balanceOf(addr);
@@ -387,7 +450,7 @@ export async function readQoriLiveState() {
         baseCtx.guardianState = "NO KEY";
       }
     } catch {
-      baseCtx.guardianState = "NO KEY";
+      baseCtx.guardianState = "UNKNOWN";
       baseCtx.cubeBalance = "-";
     }
 
@@ -397,10 +460,8 @@ export async function readQoriLiveState() {
       }
     }
 
-    baseCtx.protocolEra = getProtocolEra();
-
     return baseCtx;
   } catch {
-    return createBaseCtx();
+    return baseCtx;
   }
 }
