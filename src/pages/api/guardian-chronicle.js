@@ -1,9 +1,13 @@
+import crypto from "crypto";
 import { neon } from "@neondatabase/serverless";
+import { verifyMessage } from "ethers";
 
 const CUBE_ADDRESS =
   "0x30e1076bDf2B123B54486C2721125388af2d2061".toLowerCase();
 
 const ALLOWED_ORIGINS = [
+  "https://guardian.energon.app",
+  "https://energon.app",
   "https://energon-site.vercel.app",
   "https://energon-dapp.vercel.app",
   "http://localhost:3000",
@@ -33,6 +37,27 @@ function padUint(value) {
 function decodeAddress(hex) {
   if (!hex || hex === "0x") return "";
   return "0x" + hex.slice(-40).toLowerCase();
+}
+
+function buildRecordVerificationMessage({
+  wallet,
+  cubeId,
+  guardianName,
+  recordText,
+  publicPermission,
+  bookPermission,
+}) {
+  return (
+    "Energon Guardian Chronicle Record\n" +
+    JSON.stringify({
+      wallet,
+      cubeId,
+      guardianName,
+      recordText,
+      publicPermission,
+      bookPermission,
+    })
+  );
 }
 
 async function rpcCall(to, data) {
@@ -93,6 +118,18 @@ export default async function handler(req, res) {
     return res.status(204).end();
   }
 
+  const origin =
+    req.headers.origin;
+
+  if (
+    origin &&
+    !ALLOWED_ORIGINS.includes(origin)
+  ) {
+    return res.status(403).json({
+      error: "Origin not allowed.",
+    });
+  }
+
   try {
     if (req.method !== "POST") {
       return res.status(405).json({
@@ -113,6 +150,8 @@ export default async function handler(req, res) {
       recordText,
       publicPermission,
       bookPermission,
+      verificationMessage,
+      signature,
     } = req.body || {};
 
     if (!wallet || !/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
@@ -159,6 +198,73 @@ export default async function handler(req, res) {
     }
 
     const normalizedWallet = wallet.toLowerCase();
+
+    if (
+      !verificationMessage ||
+      typeof verificationMessage !== "string"
+    ) {
+      return res.status(400).json({
+        error: "Missing Guardian Record verification message.",
+      });
+    }
+
+    if (
+      !signature ||
+      typeof signature !== "string"
+    ) {
+      return res.status(400).json({
+        error: "Missing wallet signature.",
+      });
+    }
+
+    const expectedVerificationMessage =
+      buildRecordVerificationMessage({
+        wallet: normalizedWallet,
+        cubeId: cleanCubeId,
+        guardianName: cleanName,
+        recordText: cleanRecord,
+        publicPermission: Boolean(publicPermission),
+        bookPermission: Boolean(bookPermission),
+      });
+
+    if (
+      verificationMessage !==
+      expectedVerificationMessage
+    ) {
+      return res.status(400).json({
+        error: "Guardian Record verification message does not match this submission.",
+      });
+    }
+
+    let recoveredAddress;
+
+    try {
+      recoveredAddress =
+        verifyMessage(
+          verificationMessage,
+          signature
+        );
+    } catch {
+      return res.status(400).json({
+        error: "Invalid wallet signature.",
+      });
+    }
+
+    if (
+      recoveredAddress.toLowerCase() !==
+      normalizedWallet
+    ) {
+      return res.status(403).json({
+        error: "Signature does not match the connected wallet.",
+      });
+    }
+
+    const submissionHash =
+      crypto
+        .createHash("sha256")
+        .update(verificationMessage)
+        .digest("hex");
+
     const balance = await cubeBalanceOf(normalizedWallet);
 
     if (balance !== 1n) {
@@ -177,14 +283,6 @@ export default async function handler(req, res) {
     }
 
     const sql = neon(process.env.DATABASE_URL);
-    console.log("DATABASE_URL exists:", Boolean(process.env.DATABASE_URL));
-
-    try {
-      const databaseUrl = new URL(process.env.DATABASE_URL);
-      console.log("DATABASE_URL host:", databaseUrl.host);
-    } catch {
-      console.log("DATABASE_URL host: INVALID_URL");
-    }
 
     const savedRows = await sql`
       INSERT INTO guardian_records (
@@ -195,7 +293,8 @@ export default async function handler(req, res) {
         record_text,
         public_permission,
         book_permission,
-        status
+        status,
+        submission_hash
       )
       VALUES (
         ${normalizedWallet},
@@ -205,7 +304,8 @@ export default async function handler(req, res) {
         ${cleanRecord},
         ${Boolean(publicPermission)},
         ${Boolean(bookPermission)},
-        'submitted'
+        'submitted',
+        ${submissionHash}
       )
       RETURNING
         id,
@@ -247,6 +347,23 @@ export default async function handler(req, res) {
       record: savedRecord,
     });
   } catch (err) {
+    const isDuplicateSubmission =
+      err?.code === "23505" &&
+      (
+        String(err?.constraint || "").includes(
+          "guardian_records_submission_hash_uidx"
+        ) ||
+        String(err?.message || "").includes(
+          "guardian_records_submission_hash_uidx"
+        )
+      );
+
+    if (isDuplicateSubmission) {
+      return res.status(409).json({
+        error: "This Guardian Record has already been submitted.",
+      });
+    }
+
     console.error("guardian-chronicle error:", err);
 
     return res.status(500).json({
