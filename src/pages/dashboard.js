@@ -7,6 +7,7 @@ import {
   MAINNET_CHAIN_ID,
   NETWORK_NAME,
   RPCS,
+  EVAULT_ADDRESS,
 } from "../lib/contract";
 
 const EON_ADDRESS = "0x9458Cbb2e7DafFE6b3cf4d6F2AC75f2d2e0F7d79";
@@ -69,6 +70,10 @@ const CONTROLLER_ABI = [
 const ERC20_ABI = [
   "function balanceOf(address) view returns (uint256)",
   "function decimals() view returns (uint8)",
+];
+
+const EVAULT_VALUE_ABI = [
+  "function effectiveUsdt0PerEon_1e18() view returns (uint256)",
 ];
 
 async function getWalletChainId() {
@@ -134,6 +139,20 @@ function formatCountdown(seconds) {
   return `${minutes}m`;
 }
 
+function formatValue18(value, maxDecimals = 6) {
+  try {
+    if (typeof value !== "bigint") return "—";
+
+    const raw = ethers.formatUnits(value, 18);
+    const [whole, fraction = ""] = raw.split(".");
+    const trimmed = fraction.slice(0, maxDecimals).replace(/0+$/, "");
+
+    return trimmed ? `${whole}.${trimmed}` : whole;
+  } catch {
+    return "—";
+  }
+}
+
 export default function Dashboard() {
   const [account, setAccount] = useState("");
   const [chainId, setChainId] = useState(null);
@@ -148,6 +167,11 @@ export default function Dashboard() {
   const [cubeBal, setCubeBal] = useState("-");
   const [eligibleText, setEligibleText] = useState("-");
   const [eonBal, setEonBal] = useState("-");
+  const [eonBalanceWei, setEonBalanceWei] = useState(null);
+  const [eonEvaultPriceWei, setEonEvaultPriceWei] = useState(null);
+  const [eonValueExpanded, setEonValueExpanded] = useState(false);
+  const [eonPriceBlinkCount, setEonPriceBlinkCount] = useState(0);
+  const [eonPriceDirection, setEonPriceDirection] = useState(null);
 
   const [controllerAddr, setControllerAddr] = useState("-");
   const [energonHeight, setEnergonHeight] = useState("-");
@@ -178,6 +202,7 @@ export default function Dashboard() {
   const lastTickHeightRef = useRef(null);
   const accountRef = useRef("");
   const prevBurnedRef = useRef(null);
+  const prevEonPriceRef = useRef(null);
   const refreshInFlightRef = useRef(false);
   const readFailureCountRef = useRef(0);
 
@@ -339,6 +364,58 @@ export default function Dashboard() {
     };
   }, [burnProgressPctValue, burnBlinkCount]);
 
+  const eonTileVisual = useMemo(() => {
+    const flashOn =
+      eonPriceBlinkCount > 0 &&
+      eonPriceBlinkCount % 2 === 1;
+
+    if (!flashOn || !eonPriceDirection) {
+      return {};
+    }
+
+    if (eonPriceDirection === "up") {
+      return {
+        background:
+          "linear-gradient(180deg, rgba(12,62,38,0.72), rgba(5,20,13,0.94)), radial-gradient(circle at 78% 22%, rgba(70,255,160,0.28), transparent 62%)",
+        border: "1px solid rgba(70,255,160,0.52)",
+        boxShadow:
+          "0 18px 34px rgba(0,0,0,0.30), 0 0 38px rgba(60,255,150,0.34), inset 0 0 24px rgba(70,255,160,0.18)",
+      };
+    }
+
+    if (eonPriceDirection === "down") {
+      return {
+        background:
+          "linear-gradient(180deg, rgba(68,16,20,0.72), rgba(22,5,8,0.94)), radial-gradient(circle at 78% 22%, rgba(255,70,80,0.28), transparent 62%)",
+        border: "1px solid rgba(255,80,90,0.52)",
+        boxShadow:
+          "0 18px 34px rgba(0,0,0,0.30), 0 0 38px rgba(255,60,70,0.34), inset 0 0 24px rgba(255,70,80,0.18)",
+      };
+    }
+
+    return {};
+  }, [eonPriceBlinkCount, eonPriceDirection]);
+
+  const eonEvaultPriceText = useMemo(() => {
+    if (eonEvaultPriceWei === null) return "—";
+    if (eonEvaultPriceWei <= 0n) return "Unavailable";
+    return `${formatValue18(eonEvaultPriceWei, 6)} USDT0`;
+  }, [eonEvaultPriceWei]);
+
+  const eonWalletValueText = useMemo(() => {
+    if (!walletConnected || !chainOk || eonBalanceWei === null) return "—";
+    if (eonEvaultPriceWei === null) return "—";
+    if (eonEvaultPriceWei <= 0n) return "Unavailable";
+
+    const value18 = (eonBalanceWei * eonEvaultPriceWei) / (10n ** 18n);
+    return `${formatValue18(value18, 6)} USDT0`;
+  }, [
+    walletConnected,
+    chainOk,
+    eonBalanceWei,
+    eonEvaultPriceWei,
+  ]);
+
   const clockPhase = useMemo(() => {
     if (!nextHalvingTimestamp) return "green";
     if (nextHalvingCountdownSeconds <= THREE_MONTHS_SECONDS) return "red";
@@ -406,6 +483,16 @@ export default function Dashboard() {
 
     return () => clearTimeout(t);
   }, [burnBlinkCount]);
+
+  useEffect(() => {
+    if (eonPriceBlinkCount <= 0) return;
+
+    const t = setTimeout(() => {
+      setEonPriceBlinkCount((c) => Math.max(0, c - 1));
+    }, 150);
+
+    return () => clearTimeout(t);
+  }, [eonPriceBlinkCount]);
 
   function setCooldown(seconds) {
     setCooldownLeft(Math.max(0, Number(seconds || 0)));
@@ -804,6 +891,36 @@ export default function Dashboard() {
         noteReadFailure("burnPoolRemaining failure");
       }
 
+      try {
+        const evault = new ethers.Contract(
+          EVAULT_ADDRESS,
+          EVAULT_VALUE_ABI,
+          providerToUse
+        );
+
+        const nextPrice = await evault.effectiveUsdt0PerEon_1e18();
+        const nextPriceWei = BigInt(nextPrice.toString());
+
+        if (
+          typeof prevEonPriceRef.current === "bigint" &&
+          nextPriceWei !== prevEonPriceRef.current
+        ) {
+          setEonPriceDirection(
+            nextPriceWei > prevEonPriceRef.current ? "up" : "down"
+          );
+          setEonPriceBlinkCount(6);
+        }
+
+        prevEonPriceRef.current = nextPriceWei;
+        setEonEvaultPriceWei(nextPriceWei);
+      } catch (e) {
+        console.warn(
+          "EVault EON value read failed; keeping last value",
+          e
+        );
+        noteReadFailure("EVault EON value failure");
+      }
+
       if (acct) {
         const eon = new ethers.Contract(EON_ADDRESS, ERC20_ABI, providerToUse);
 
@@ -827,6 +944,7 @@ export default function Dashboard() {
 
         if (eonBalanceResult.status === "fulfilled") {
           setEonBal(`${ethers.formatUnits(eonBalanceResult.value, 18)} EON`);
+          setEonBalanceWei(BigInt(eonBalanceResult.value.toString()));
         } else {
           console.warn(
             "EON balance read failed; keeping last value",
@@ -838,6 +956,7 @@ export default function Dashboard() {
         setCubeBal("-");
         setEligibleText("-");
         setEonBal("-");
+        setEonBalanceWei(null);
       }
 
       if (controllerReads.some((r) => r.status === "fulfilled")) {
@@ -1328,13 +1447,26 @@ export default function Dashboard() {
           <div
             style={{
               ...styles.tile,
+              ...eonTileVisual,
               ...(isMobile ? styles.tileWideMobile : {}),
+              cursor: "pointer",
             }}
+            onClick={() => setEonValueExpanded((v) => !v)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                setEonValueExpanded((v) => !v);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-expanded={eonValueExpanded}
+            aria-label="Show EVault value for EON"
           >
             <div style={styles.tileLabel}>Energon Token (EON)</div>
             <div style={styles.eonRow}>
               <img src={EON_ICON_URI} alt="EON" style={styles.eonIconImg} />
-              <div>
+              <div style={{ minWidth: 0 }}>
                 <div
                   style={{
                     ...styles.eonTitle,
@@ -1353,6 +1485,34 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
+
+            <div style={styles.eonValueHint}>
+              {eonValueExpanded
+                ? "Tap / click to close"
+                : "Tap / click for EVault value"}
+            </div>
+
+            {eonValueExpanded ? (
+              <div style={styles.eonValueDetails}>
+                <div style={styles.eonValueLine}>
+                  <span style={styles.eonValueLabel}>EVault Value</span>
+                  <strong style={styles.eonValueNumber}>
+                    1 EON = {eonEvaultPriceText}
+                  </strong>
+                </div>
+
+                <div style={styles.eonValueLine}>
+                  <span style={styles.eonValueLabel}>Your EON Value</span>
+                  <strong style={styles.eonValueNumber}>
+                    {eonWalletValueText}
+                  </strong>
+                </div>
+
+                <div style={styles.eonValueSource}>
+                  Source: Energon EVault · Flare Mainnet
+                </div>
+              </div>
+            ) : null}
           </div>
 
           {tile(
@@ -1828,6 +1988,46 @@ const styles = {
   eonBalanceTextMobile: {
     fontSize: 14,
     lineHeight: 1.35,
+  },
+
+  eonValueHint: {
+    marginTop: 10,
+    color: "rgba(137,185,255,0.72)",
+    fontSize: 11,
+    letterSpacing: 0.35,
+  },
+
+  eonValueDetails: {
+    marginTop: 12,
+    paddingTop: 11,
+    borderTop: "1px solid rgba(110,180,255,0.14)",
+  },
+
+  eonValueLine: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 12,
+    alignItems: "baseline",
+    padding: "5px 0",
+  },
+
+  eonValueLabel: {
+    color: "rgba(216,228,248,0.72)",
+    fontSize: 12,
+  },
+
+  eonValueNumber: {
+    color: "#f2f7ff",
+    fontSize: 12,
+    textAlign: "right",
+    overflowWrap: "anywhere",
+  },
+
+  eonValueSource: {
+    marginTop: 8,
+    color: "rgba(150,178,220,0.58)",
+    fontSize: 10,
+    letterSpacing: 0.25,
   },
 
   clockMeta: {
