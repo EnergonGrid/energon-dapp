@@ -13,6 +13,7 @@ export default function Nav() {
     { href: "/mint", label: "Mint" },
     { href: "/dashboard", label: "Dashboard" },
     { href: "/observer", label: "Observer" },
+    { href: "/evault", label: "EVault" },
   ];
 
   useEffect(() => {
