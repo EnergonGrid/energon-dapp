@@ -6,6 +6,24 @@ The interface surfaces on-chain state. It does not control protocol behavior.
 
 ---
 
+## Position in EnergonGrid
+
+The [EnergonGrid repository](https://github.com/EnergonGrid/EnergonGrid) is the umbrella architecture for the whole ecosystem. The DApp is an interface to the protocol, not a separate protocol or an administrator of deployed contracts.
+
+| Layer | On-chain system | Documentation |
+| --- | --- | --- |
+| **Energon Core** | EON, EnergonCube, EnergonController | [Main architecture](https://github.com/EnergonGrid/EnergonGrid#energon-grid-architecture) |
+| **EMP / EVault** | Separately deployed Energon EVault economic contract | [Economic layer](https://github.com/EnergonGrid/EnergonGrid/blob/main/docs/evault.md) |
+| **EPA / Energon Network** | Energon Network and project-specific adapters | [Integration layer](https://github.com/EnergonGrid/EnergonGrid/blob/main/docs/network.md) |
+
+**EMP** means Energon Management Protocol; the EMP document and EVault contract are not interchangeable. **EPA** refers to project-specific Energon Project Adapters, not a single global contract address.
+
+These links describe the broader architecture; they do **not** assert that this DApp currently implements every EVault or Network function. Any new transaction surface must be integrated and tested separately.
+
+Frontend updates cannot bypass on-chain eligibility, reserve, claim, adapter, or timing rules.
+
+---
+
 ## Surfaces
 
 ### Mint
