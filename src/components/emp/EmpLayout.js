@@ -1,5 +1,6 @@
 // src/components/emp/EmpLayout.js
 import React from "react";
+import Link from "next/link";
 
 const LOGO_URL =
   "https://red-secret-dragonfly-529.mypinata.cloud/ipfs/bafybeiccfdp4aez6gqva5yx5cmixc7dugqxl6eee5nhb54sdhpnidpmt7u";
@@ -203,7 +204,12 @@ export default function EmpLayout({
       `}</style>
 
       <header style={ui.header}>
-        <div />
+        <Link
+          href="/dashboard"
+          style={ui.dashboardButton}
+        >
+          ← Dashboard
+        </Link>
 
         <div style={ui.headerRight}>
           {headerRight}
@@ -232,6 +238,24 @@ const ui = {
     justifyContent: "space-between",
     alignItems: "center",
     padding: "10px 16px 2px",
+  },
+
+  dashboardButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 38,
+    padding: "8px 14px",
+    borderRadius: 10,
+    border: "1px solid rgba(255, 200, 70, 0.38)",
+    background:
+      "linear-gradient(180deg, rgba(255, 190, 40, 0.18), rgba(80, 55, 10, 0.30))",
+    color: "#ffd45c",
+    textDecoration: "none",
+    fontSize: 13,
+    fontWeight: 800,
+    letterSpacing: 0.4,
+    boxShadow: "0 0 16px rgba(255, 190, 40, 0.10)",
   },
 
   headerRight: {
