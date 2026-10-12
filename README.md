@@ -12,7 +12,7 @@ The [EnergonGrid repository](https://github.com/EnergonGrid/EnergonGrid) is the 
 
 | Layer | On-chain system | Documentation |
 | --- | --- | --- |
-| **Energon Core** | EON, EnergonCube, EnergonController | [Main architecture](https://github.com/EnergonGrid/EnergonGrid#energon-grid-architecture) |
+| **Energon Core** | EON, EnergonCube, EnergonController | [Main architecture](https://github.com/EnergonGrid/EnergonGrid#energongrid-architecture) |
 | **EMP / EVault** | Separately deployed Energon EVault economic contract | [Economic layer](https://github.com/EnergonGrid/EnergonGrid/blob/main/docs/evault.md) |
 | **EPA / Energon Network** | Energon Network and project-specific adapters | [Integration layer](https://github.com/EnergonGrid/EnergonGrid/blob/main/docs/network.md) |
 
@@ -56,9 +56,9 @@ It exists to be watched, not optimized.
 
 ## Canon
 
-Protocol behavior is governed by:
-- Whitepaper
-- Energon Management Protocol (EMP)
+The Whitepaper and Energon Management Protocol (EMP) describe the protocol framework. Actual behavior is enforced by the deployed smart contracts and live on-chain state.
+
+If documentation or interface presentation differs from deployed contract execution, the deployed contracts are the source of truth.
 
 User interfaces do not override protocol rules.
 // feb 1 live marker
