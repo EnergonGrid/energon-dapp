@@ -9,6 +9,7 @@ import { builderAssistant } from "./conversation/builderAssistant";
 import { protocolAssistant } from "./conversation/protocolAssistant";
 import { explorerAssistant } from "./conversation/explorerAssistant";
 import { communityAssistant } from "./conversation/communityAssistant";
+import { buildEmpDialogueResponse } from "./conversation/empAssistant";
 import {
   buildReasoningContext,
   shouldUseSpecialist,
@@ -19,6 +20,7 @@ import {
   hasAnyPhrase as hasAny,
 } from "./conversation/matchUtils";
 
+export { buildEmpDialogueResponse };
 
 function formatHeight(v = "") {
   const n = Number(String(v || "").replace(/,/g, "").trim());
@@ -118,6 +120,9 @@ export function buildGuardianDialogueResponse(cleanInput, ctx = {}) {
   if (!q) return "";
 
   rememberConversationTopic(cleanInput, ctx.walletAddress);
+
+  const empResponse = buildEmpDialogueResponse(cleanInput, ctx);
+  if (empResponse) return empResponse;
 
   const rememberedTopic = readConversationTopic(ctx.walletAddress);
   const intent = detectIntent(cleanInput);

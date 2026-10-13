@@ -33,10 +33,10 @@ const EVaultAbi = EVaultArtifact.abi;
 
 import { erc20Abi } from "@/lib/emp/erc20Abi";
 import {
-  useEVaultState,
   formatUnitsSafe,
   parseUnitsSafe,
 } from "@/lib/emp/hooks/useEVaultState";
+import { useEmpState } from "@/lib/emp/EmpStateProvider";
 
 function isAddr(a) {
   return typeof a === "string" && a.startsWith("0x") && a.length === 42;
@@ -399,7 +399,7 @@ function fmtBps(bps) {
 }
 
 export default function EmpDashboard() {
-  const vRaw = useEVaultState();
+  const vRaw = useEmpState();
   const publicClient = usePublicClient();
 
   const { address, isConnected } = useAccount();

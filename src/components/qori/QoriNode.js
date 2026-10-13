@@ -3,7 +3,10 @@ import { getQoriResponse, getVisitorMenu } from "./qoriKnowledge";
 import { getVisitorEchoResponse } from "./qoriVisitorEchoes";
 import { getCoherentEchoResponse } from "./qoriCoherentEchoes";
 import { getVocabularyResponse } from "./qoriVocabulary";
-import { buildGuardianDialogueResponse } from "./qoriConversation";
+import {
+  buildGuardianDialogueResponse,
+  buildEmpDialogueResponse,
+} from "./qoriConversation";
 import { typeText, stopTyping, maybeAddSignalDegradation } from "./qoriEffects";
 import {
   getStateVisuals,
@@ -12,6 +15,8 @@ import {
   readQoriLiveState,
   formatProtocolEraDisplay,
 } from "./qoriState";
+import { useEmpObservationControl } from "@/lib/emp/EmpStateProvider";
+import { useQoriEmpObservation } from "@/lib/qori/useQoriEmpObservation";
 
 const QORI_MEMORY_KEY = "energon_qori_guardian_memory_v2";
 
@@ -590,6 +595,7 @@ _`;
 
 export default function QoriNode({ hideOrb = true } = {}) {
   const [open, setOpen] = useState(false);
+  const { setQoriActive } = useEmpObservationControl();
   const [pulse, setPulse] = useState(1);
   const [input, setInput] = useState("");
   const [displayText, setDisplayText] = useState("");
@@ -604,6 +610,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
   const [ctx, setCtx] = useState({
     walletConnected: false,
+    walletAddress: "",
+    readStatus: "NOT_CONNECTED",
     guardianState: "UNKNOWN",
     cubeBalance: "-",
     energonHeight: "",
@@ -616,6 +624,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
     protocolEraSource: "UNKNOWN",
   });
 
+  const empObservation = useQoriEmpObservation(ctx);
+
   const typingRef = useRef(null);
   const liveRef = useRef(null);
   const silentRef = useRef(null);
@@ -627,6 +637,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const previousWalletConnectedRef = useRef(false);
   const previousStateRef = useRef(null);
   const latestCtxRef = useRef(ctx);
+  const latestEmpObservationRef = useRef(empObservation);
   const eventQueueRef = useRef([]);
   const eventPlayingRef = useRef(false);
   const sessionEpochRef = useRef(0);
@@ -643,6 +654,14 @@ export default function QoriNode({ hideOrb = true } = {}) {
     }
   }, [open]);
 
+  useEffect(() => {
+    setQoriActive(open);
+  }, [open, setQoriActive]);
+
+  useEffect(() => {
+    return () => setQoriActive(false);
+  }, [setQoriActive]);
+
   useEffect(() => () => {
     sessionEpochRef.current += 1;
     for (const timer of sessionTimersRef.current) clearTimeout(timer);
@@ -653,6 +672,17 @@ export default function QoriNode({ hideOrb = true } = {}) {
   useEffect(() => {
     latestCtxRef.current = ctx;
   }, [ctx]);
+
+  useEffect(() => {
+    latestEmpObservationRef.current = empObservation;
+  }, [empObservation]);
+
+  function withEmpObservation(liveCtx = latestCtxRef.current) {
+    return {
+      ...liveCtx,
+      empObservation: latestEmpObservationRef.current,
+    };
+  }
 
   function isCoherentQori(liveCtx = latestCtxRef.current) {
     return (
@@ -786,6 +816,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     const freshCtx = nextCtx || {
       walletConnected: false,
       walletAddress: "",
+      readStatus: "NOT_CONNECTED",
       guardianState: "UNKNOWN",
       cubeBalance: "-",
       energonHeight: "UNKNOWN",
@@ -954,7 +985,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
     );
   }
 
-  function scheduleReturnToVisitorMenu(delay = 10000) {
+  function scheduleReturnToVisitorMenu(delay = 45000) {
     if (isCoherentQori()) return;
 
     clearReturnMenuTimer();
@@ -963,7 +994,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       if (screenRef.current === "menu") return;
 
       if (userIsTypingOrHoldingText()) {
-        scheduleReturnToVisitorMenu(10000);
+        scheduleReturnToVisitorMenu(45000);
         return;
       }
 
@@ -977,7 +1008,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
     returnMenuRef.current = scheduleSessionTimeout(() => {
       if (String(nextValue).trim() || userIsTypingOrHoldingText()) {
-        if (isVisitorFlow()) scheduleReturnToVisitorMenu(10000);
+        if (isVisitorFlow()) scheduleReturnToVisitorMenu(45000);
         else scheduleAmbientObservation(90000);
         return;
       }
@@ -998,7 +1029,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
       () => {
         setThinking(false);
         if (isCoherentQori()) scheduleAmbientObservation(90000);
-        else scheduleReturnToVisitorMenu(10000);
+        else scheduleReturnToVisitorMenu(45000);
         scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -1010,6 +1041,25 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
     const q = normalizeInput(cleanInput);
     const query = visitorQueryFromInput(q);
+
+    const empResponse = buildEmpDialogueResponse(
+      cleanInput,
+      withEmpObservation(latestCtxRef.current),
+    );
+
+    if (empResponse) {
+      transmit(
+        empResponse,
+        30,
+        () => {
+          setThinking(false);
+          scheduleReturnToVisitorMenu(45000);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
+        },
+        "system",
+      );
+      return true;
+    }
 
     if (q === "4" || q.includes("wallet setup")) {
       transmit(
@@ -1088,7 +1138,7 @@ _`,
       30,
       () => {
         setThinking(false);
-        scheduleReturnToVisitorMenu(10000);
+        scheduleReturnToVisitorMenu(45000);
         scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -1135,11 +1185,14 @@ ${randomGuardianPrompt()}`);
     }
 
     if (q.includes("status")) {
-      answerLive(getSystemObservation(liveCtx));
+      answerLive(getSystemObservation(withEmpObservation(liveCtx)));
       return true;
     }
 
-    const dialogueAnswer = buildGuardianDialogueResponse(cleanInput, liveCtx);
+    const dialogueAnswer = buildGuardianDialogueResponse(
+      cleanInput,
+      withEmpObservation(liveCtx),
+    );
 
     if (dialogueAnswer) {
       transmit(
@@ -1229,6 +1282,8 @@ _`,
     if (landingMode) {
       const visitorCtx = {
         walletConnected: false,
+        walletAddress: "",
+        readStatus: "NOT_CONNECTED",
         guardianState: "VISITOR",
         cubeBalance: "-",
         energonHeight: "PUBLIC",
@@ -1298,7 +1353,7 @@ _`,
           () => {
             setThinking(false);
             screenRef.current = "answer";
-            scheduleReturnToVisitorMenu(10000);
+            scheduleReturnToVisitorMenu(45000);
           },
           "system"
         );

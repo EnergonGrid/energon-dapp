@@ -185,6 +185,7 @@ function createBaseCtx() {
   return {
     walletConnected: false,
     walletAddress: "",
+    readStatus: "NOT_CONNECTED",
     // An unread balance does not establish zero ownership.
     guardianState: "UNKNOWN",
     cubeBalance: "-",
@@ -358,6 +359,7 @@ export async function readQoriLiveState() {
         if (walletAddress) {
           baseCtx.walletConnected = true;
           baseCtx.walletAddress = walletAddress;
+          baseCtx.readStatus = "UNKNOWN";
         }
       }
     } catch {
@@ -441,6 +443,7 @@ export async function readQoriLiveState() {
       const n = Number(bal.toString());
 
       baseCtx.cubeBalance = String(n);
+      baseCtx.readStatus = "LIVE";
 
       if (n === 1) {
         baseCtx.guardianState = "COHERENT";
@@ -450,6 +453,7 @@ export async function readQoriLiveState() {
         baseCtx.guardianState = "NO KEY";
       }
     } catch {
+      baseCtx.readStatus = "UNKNOWN";
       baseCtx.guardianState = "UNKNOWN";
       baseCtx.cubeBalance = "-";
     }

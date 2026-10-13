@@ -30,6 +30,43 @@ function abiHasFn(abi, name) {
   }
 }
 
+const EMP_READ_STATUS = Object.freeze({
+  LIVE: "LIVE",
+  UNKNOWN: "UNKNOWN",
+  NOT_CONNECTED: "NOT_CONNECTED",
+  UNSUPPORTED: "UNSUPPORTED",
+});
+
+function readKey(args = {}) {
+  const address = String(args.address || "").toLowerCase();
+  const functionName = String(args.functionName || "");
+  const readArgs = Array.isArray(args.args) ? args.args : [];
+
+  const normalizedArgs = readArgs
+    .map((value) => {
+      if (typeof value === "bigint") {
+        return `${value.toString()}n`;
+      }
+
+      return String(value ?? "");
+    })
+    .join("|");
+
+  return `${address}::${functionName}::${normalizedArgs}`;
+}
+
+function mergeLastSuccessfulReadAt(previous, readStatus, timestamp) {
+  const next = { ...(previous || {}) };
+
+  for (const [domain, status] of Object.entries(readStatus || {})) {
+    if (status === EMP_READ_STATUS.LIVE) {
+      next[domain] = timestamp;
+    }
+  }
+
+  return next;
+}
+
 function subClamp0(a, b) {
   try {
     const x = (a ?? 0n) - (b ?? 0n);
@@ -250,7 +287,7 @@ function deriveHealth({
   };
 }
 
-export function useEVaultState() {
+export function useEVaultState({ active = true } = {}) {
   const addrs = useMemo(() => getAddresses(), []);
 
   const { address } = useAccount();
@@ -268,6 +305,28 @@ export function useEVaultState() {
 
   const [state, setState] = useState({
     enabled: false,
+
+    readStatus: {
+      protocol: EMP_READ_STATUS.UNKNOWN,
+      reserves: EMP_READ_STATUS.UNKNOWN,
+      threshold: EMP_READ_STATUS.UNKNOWN,
+      guardian: EMP_READ_STATUS.NOT_CONNECTED,
+      registration: EMP_READ_STATUS.NOT_CONNECTED,
+      access: EMP_READ_STATUS.NOT_CONNECTED,
+      maturity: EMP_READ_STATUS.UNKNOWN,
+    },
+
+    lastReadAttemptAt: 0,
+
+    lastSuccessfulReadAt: {
+      protocol: 0,
+      reserves: 0,
+      threshold: 0,
+      guardian: 0,
+      registration: 0,
+      access: 0,
+      maturity: 0,
+    },
 
     chain: addrs.chain,
     rpcUrl: addrs.rpcUrl,
@@ -312,6 +371,10 @@ export function useEVaultState() {
     maturityFree24h: null,
     maturityFast12h: null,
     maturityRapid6h: null,
+
+    maturityFreeFeeBps: null,
+    maturityFastFeeBps: null,
+    maturityRapidFeeBps: null,
 
     minEonReserve: null,
     minUsdt0Reserve: null,
@@ -435,9 +498,32 @@ export function useEVaultState() {
   }, []);
 
   useEffect(() => {
+    if (!active) {
+      const walletReadStatus = address
+        ? EMP_READ_STATUS.UNKNOWN
+        : EMP_READ_STATUS.NOT_CONNECTED;
+
+      setState((current) => ({
+        ...current,
+        readStatus: {
+          protocol: EMP_READ_STATUS.UNKNOWN,
+          reserves: EMP_READ_STATUS.UNKNOWN,
+          threshold: EMP_READ_STATUS.UNKNOWN,
+          guardian: walletReadStatus,
+          registration: walletReadStatus,
+          access: walletReadStatus,
+          maturity: EMP_READ_STATUS.UNKNOWN,
+        },
+      }));
+
+      return undefined;
+    }
+
     let alive = true;
 
     let reading = false;
+
+    let successfulReadKeys = new Set();
 
     const safeRead = async (args) => {
       try {
@@ -445,11 +531,15 @@ export function useEVaultState() {
           return null;
         }
 
-        return await client.readContract(args);
+        const result = await client.readContract(args);
+        successfulReadKeys.add(readKey(args));
+        return result;
       } catch {
         return null;
       }
     };
+
+    const didRead = (args) => successfulReadKeys.has(readKey(args));
 
     async function read() {
       if (reading) {
@@ -457,6 +547,9 @@ export function useEVaultState() {
       }
 
       reading = true;
+      successfulReadKeys = new Set();
+
+      const readAttemptedAt = Date.now();
 
       try {
         const enabled =
@@ -468,9 +561,23 @@ export function useEVaultState() {
 
         if (!enabled) {
           if (alive) {
+            const walletReadStatus = address
+              ? EMP_READ_STATUS.UNKNOWN
+              : EMP_READ_STATUS.NOT_CONNECTED;
+
             setState((current) => ({
               ...current,
               enabled: false,
+              readStatus: {
+                protocol: EMP_READ_STATUS.UNKNOWN,
+                reserves: EMP_READ_STATUS.UNKNOWN,
+                threshold: EMP_READ_STATUS.UNKNOWN,
+                guardian: walletReadStatus,
+                registration: walletReadStatus,
+                access: walletReadStatus,
+                maturity: EMP_READ_STATUS.UNKNOWN,
+              },
+              lastReadAttemptAt: readAttemptedAt,
             }));
           }
 
@@ -597,6 +704,33 @@ export function useEVaultState() {
               address: addrs.vault,
               abi: EVaultAbi,
               functionName: "maturitySeconds",
+              args: [2],
+            })
+          : null;
+
+        const maturityFreeFeeBps = abiHasFn(EVaultAbi, "maturityFeeBps")
+          ? await safeRead({
+              address: addrs.vault,
+              abi: EVaultAbi,
+              functionName: "maturityFeeBps",
+              args: [0],
+            })
+          : null;
+
+        const maturityFastFeeBps = abiHasFn(EVaultAbi, "maturityFeeBps")
+          ? await safeRead({
+              address: addrs.vault,
+              abi: EVaultAbi,
+              functionName: "maturityFeeBps",
+              args: [1],
+            })
+          : null;
+
+        const maturityRapidFeeBps = abiHasFn(EVaultAbi, "maturityFeeBps")
+          ? await safeRead({
+              address: addrs.vault,
+              abi: EVaultAbi,
+              functionName: "maturityFeeBps",
               args: [2],
             })
           : null;
@@ -1419,6 +1553,250 @@ export function useEVaultState() {
           Boolean(guardianThresholdMet) ||
           coherentGuardianCount >= guardianUnlockThreshold;
 
+        // Q.O.R.I. read-confidence metadata. These checks do not alter any
+        // existing EMP display values or fallbacks; they only describe
+        // whether the current cycle produced trustworthy source reads.
+        const readOk = (addressValue, functionName, args = []) =>
+          didRead({
+            address: addressValue,
+            functionName,
+            args,
+          });
+
+        const vaultBalanceReadOk = {
+          eon:
+            readOk(addrs.vault, "eonBalance") ||
+            readOk(addrs.eon, "balanceOf", [addrs.vault]),
+          usdt0:
+            readOk(addrs.vault, "usdt0Balance") ||
+            readOk(addrs.usdt0, "balanceOf", [addrs.vault]),
+          wflr:
+            readOk(addrs.vault, "wflrBalance") ||
+            readOk(addrs.wflr, "balanceOf", [addrs.vault]),
+          fxrp:
+            !fxrpOk ||
+            readOk(addrs.vault, "fxrpBalance") ||
+            readOk(addrs.fxrp, "balanceOf", [addrs.vault]),
+        };
+
+        const rawBalanceReadOk = {
+          eon:
+            readOk(addrs.vault, "rawEonBalance") ||
+            vaultBalanceReadOk.eon,
+          usdt0:
+            readOk(addrs.vault, "rawUsdt0Balance") ||
+            vaultBalanceReadOk.usdt0,
+          wflr:
+            readOk(addrs.vault, "rawWflrBalance") ||
+            vaultBalanceReadOk.wflr,
+          fxrp:
+            !fxrpOk ||
+            readOk(addrs.vault, "rawFxrpBalance") ||
+            vaultBalanceReadOk.fxrp,
+        };
+
+        const reserveFnSupported = {
+          reservedEon: abiHasFn(EVaultAbi, "reservedEon"),
+          reservedUsdt0: abiHasFn(EVaultAbi, "reservedUsdt0"),
+          minEon:
+            abiHasFn(EVaultAbi, "minEonReserve") ||
+            abiHasFn(EVaultAbi, "MIN_EON_RESERVE"),
+          minUsdt0:
+            abiHasFn(EVaultAbi, "minUsdt0Reserve") ||
+            abiHasFn(EVaultAbi, "MIN_USDT0_RESERVE"),
+          minWflr:
+            abiHasFn(EVaultAbi, "minWflrReserve") ||
+            abiHasFn(EVaultAbi, "MIN_WFLR_RESERVE"),
+          minFxrp:
+            !fxrpOk ||
+            abiHasFn(EVaultAbi, "minFxrpReserve") ||
+            abiHasFn(EVaultAbi, "MIN_FXRP_RESERVE"),
+        };
+
+        const reserveReadOk = {
+          reservedEon: readOk(addrs.vault, "reservedEon"),
+          reservedUsdt0: readOk(addrs.vault, "reservedUsdt0"),
+          minEon:
+            readOk(addrs.vault, "minEonReserve") ||
+            readOk(addrs.vault, "MIN_EON_RESERVE"),
+          minUsdt0:
+            readOk(addrs.vault, "minUsdt0Reserve") ||
+            readOk(addrs.vault, "MIN_USDT0_RESERVE"),
+          minWflr:
+            readOk(addrs.vault, "minWflrReserve") ||
+            readOk(addrs.vault, "MIN_WFLR_RESERVE"),
+          minFxrp:
+            !fxrpOk ||
+            readOk(addrs.vault, "minFxrpReserve") ||
+            readOk(addrs.vault, "MIN_FXRP_RESERVE"),
+        };
+
+        const requiredEonReadOk = abiHasFn(
+          EVaultAbi,
+          "requiredEonReserve",
+        )
+          ? readOk(addrs.vault, "requiredEonReserve")
+          : reserveReadOk.minEon;
+
+        const requiredUsdt0ReadOk = abiHasFn(
+          EVaultAbi,
+          "requiredUsdt0Reserve",
+        )
+          ? readOk(addrs.vault, "requiredUsdt0Reserve")
+          : reserveReadOk.minUsdt0;
+
+        const withdrawCounterSupported =
+          abiHasFn(EVaultAbi, "withdrawAuthorizationNonce") ||
+          abiHasFn(EVaultAbi, "withdrawAuthorizationsLength");
+
+        const withdrawItemsSupported = abiHasFn(
+          EVaultAbi,
+          "withdrawAuthorizations",
+        );
+
+        const stagedFeaturePresent =
+          withdrawCounterSupported || withdrawItemsSupported;
+
+        const stagedFeatureSupported =
+          !stagedFeaturePresent ||
+          (withdrawCounterSupported && withdrawItemsSupported);
+
+        const withdrawCounterReadOk =
+          !stagedFeaturePresent ||
+          readOk(addrs.vault, "withdrawAuthorizationNonce") ||
+          readOk(addrs.vault, "withdrawAuthorizationsLength");
+
+        const withdrawCountNumber = Number(withdrawAuthorizationNonce ?? 0n);
+
+        const withdrawItemsReadOk =
+          !stagedFeaturePresent ||
+          (withdrawCounterReadOk &&
+            Number.isSafeInteger(withdrawCountNumber) &&
+            withdrawCountNumber >= 0 &&
+            Array.from({ length: withdrawCountNumber }, (_, index) =>
+              readOk(addrs.vault, "withdrawAuthorizations", [BigInt(index)]),
+            ).every(Boolean));
+
+        const reservesSupported =
+          Object.values(reserveFnSupported).every(Boolean) &&
+          stagedFeatureSupported;
+
+        const reservesReadLive =
+          reservesSupported &&
+          Object.values(rawBalanceReadOk).every(Boolean) &&
+          Object.values(reserveReadOk).every(Boolean) &&
+          requiredEonReadOk &&
+          requiredUsdt0ReadOk &&
+          withdrawItemsReadOk;
+
+        const guardianPrimaryLive =
+          Array.isArray(guardianStatus) && guardianStatus.length >= 2;
+
+        const guardianFallbackSupported =
+          abiHasFn(EVaultAbi, "cubeBalanceOf") &&
+          abiHasFn(EVaultAbi, "isCoherent");
+
+        const guardianFallbackLive =
+          guardianFallbackSupported &&
+          readOk(addrs.vault, "cubeBalanceOf", [address]) &&
+          readOk(addrs.vault, "isCoherent", [address]);
+
+        const guardianObservationSupported =
+          abiHasFn(EVaultAbi, "guardianStatus") || guardianFallbackSupported;
+
+        const registrationSupported =
+          abiHasFn(EVaultAbi, "guardianRegistrationStatus") &&
+          abiHasFn(EVaultAbi, "guardianCubeId");
+
+        const registrationLive =
+          registrationSupported &&
+          Array.isArray(guardianRegistrationStatus) &&
+          guardianRegistrationStatus.length >= 5 &&
+          readOk(addrs.vault, "guardianCubeId", [address]);
+
+        const accessSupported =
+          abiHasFn(EVaultAbi, "guardianStatus") &&
+          abiHasFn(EVaultAbi, "canCommit");
+
+        const accessLive =
+          accessSupported &&
+          Array.isArray(guardianStatus) &&
+          guardianStatus.length >= 6 &&
+          Array.isArray(canCommit) &&
+          canCommit.length >= 2;
+
+        const thresholdPrimaryLive =
+          Array.isArray(guardianUnlockStatus) &&
+          guardianUnlockStatus.length >= 4 &&
+          readOk(addrs.vault, "guardianUnlockStatus");
+
+        const thresholdFallbackSupported =
+          abiHasFn(EVaultAbi, "coherentGuardianCount") &&
+          abiHasFn(EVaultAbi, "guardiansRemainingToUnlock") &&
+          abiHasFn(EVaultAbi, "guardianThresholdMet");
+
+        const thresholdFallbackLive =
+          thresholdFallbackSupported &&
+          readOk(addrs.vault, "coherentGuardianCount") &&
+          readOk(addrs.vault, "guardiansRemainingToUnlock") &&
+          readOk(addrs.vault, "guardianThresholdMet");
+
+        const maturitySupported =
+          abiHasFn(EVaultAbi, "maturitySeconds") &&
+          abiHasFn(EVaultAbi, "maturityFeeBps");
+
+        const maturityLive =
+          maturitySupported &&
+          readOk(addrs.vault, "maturitySeconds", [0]) &&
+          readOk(addrs.vault, "maturitySeconds", [1]) &&
+          readOk(addrs.vault, "maturitySeconds", [2]) &&
+          readOk(addrs.vault, "maturityFeeBps", [0]) &&
+          readOk(addrs.vault, "maturityFeeBps", [1]) &&
+          readOk(addrs.vault, "maturityFeeBps", [2]);
+
+        const nextReadStatus = {
+          protocol:
+            successfulReadKeys.size > 0
+              ? EMP_READ_STATUS.LIVE
+              : EMP_READ_STATUS.UNKNOWN,
+          reserves: !reservesSupported
+            ? EMP_READ_STATUS.UNSUPPORTED
+            : reservesReadLive
+              ? EMP_READ_STATUS.LIVE
+              : EMP_READ_STATUS.UNKNOWN,
+          threshold: !guardianThresholdSupported
+            ? EMP_READ_STATUS.UNSUPPORTED
+            : thresholdPrimaryLive || thresholdFallbackLive
+              ? EMP_READ_STATUS.LIVE
+              : EMP_READ_STATUS.UNKNOWN,
+          guardian: !address
+            ? EMP_READ_STATUS.NOT_CONNECTED
+            : !guardianObservationSupported
+              ? EMP_READ_STATUS.UNSUPPORTED
+              : guardianPrimaryLive || guardianFallbackLive
+                ? EMP_READ_STATUS.LIVE
+                : EMP_READ_STATUS.UNKNOWN,
+          registration: !address
+            ? EMP_READ_STATUS.NOT_CONNECTED
+            : !registrationSupported
+              ? EMP_READ_STATUS.UNSUPPORTED
+              : registrationLive
+                ? EMP_READ_STATUS.LIVE
+                : EMP_READ_STATUS.UNKNOWN,
+          access: !address
+            ? EMP_READ_STATUS.NOT_CONNECTED
+            : !accessSupported
+              ? EMP_READ_STATUS.UNSUPPORTED
+              : accessLive
+                ? EMP_READ_STATUS.LIVE
+                : EMP_READ_STATUS.UNKNOWN,
+          maturity: !maturitySupported
+            ? EMP_READ_STATUS.UNSUPPORTED
+            : maturityLive
+              ? EMP_READ_STATUS.LIVE
+              : EMP_READ_STATUS.UNKNOWN,
+        };
+
         const health = deriveHealth({
           activeVaultEonBal,
           activeVaultUsdt0Bal,
@@ -1447,6 +1825,14 @@ export function useEVaultState() {
           ...previous,
 
           enabled: true,
+
+          readStatus: nextReadStatus,
+          lastReadAttemptAt: readAttemptedAt,
+          lastSuccessfulReadAt: mergeLastSuccessfulReadAt(
+            previous.lastSuccessfulReadAt,
+            nextReadStatus,
+            readAttemptedAt,
+          ),
 
           chain: addrs.chain,
           rpcUrl: addrs.rpcUrl,
@@ -1496,6 +1882,10 @@ export function useEVaultState() {
           maturityFree24h,
           maturityFast12h,
           maturityRapid6h,
+
+          maturityFreeFeeBps,
+          maturityFastFeeBps,
+          maturityRapidFeeBps,
 
           minEonReserve,
           minUsdt0Reserve,
@@ -1631,6 +2021,7 @@ export function useEVaultState() {
 
     address,
     refreshNonce,
+    active,
   ]);
 
   const quoteUsdt0ForEon = useCallback(

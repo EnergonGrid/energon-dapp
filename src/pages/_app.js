@@ -8,6 +8,7 @@ import {
 
 import { wagmiConfig } from "@/lib/wagmi";
 import QoriNode from "@/components/qori/QoriNode";
+import { EmpStateProvider } from "@/lib/emp/EmpStateProvider";
 
 const queryClient = new QueryClient();
 
@@ -15,8 +16,10 @@ export default function App({ Component, pageProps }) {
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <Component {...pageProps} />
-        <QoriNode />
+        <EmpStateProvider>
+          <Component {...pageProps} />
+          <QoriNode />
+        </EmpStateProvider>
       </QueryClientProvider>
     </WagmiProvider>
   );
