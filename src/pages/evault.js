@@ -105,7 +105,7 @@ function extractError(e) {
   }
   if (text.includes("BadAmount")) return "Enter a valid amount.";
   if (text.includes("PayoutWindowExceeded")) {
-    return "Claim temporarily delayed because the current payout window budget has been reached. Please wait for the next payout window and try again.";
+    return "This claim cannot be completed because the current claim-window budget has been reached. Please try again after the next window reset.";
   }
   if (text.includes("CoreWithdrawForbidden")) {
     return "Core reserve assets cannot be withdrawn by controller. EON and USDT0 are constitutionally protected.";
