@@ -206,7 +206,7 @@ by making rules visible and repeatable.`,
     match: ["gas", "fee", "fees", "transaction fee"],
     response: `GAS FEES
 
-Gas is the cost paid to execute actions on-chain.
+Gas refers to the network fee required to execute actions on-chain.
 
 Sending,
 minting,
@@ -1568,9 +1568,9 @@ to Main EVault.
 Activation requires exactly
 2,000 WFLR.
 
-Project payments use EON or USDT0.
+Project EFlows use EON or USDT0.
 
-Each payment is divided:
+Each completed EFlow allocates the received amount:
 
 90% to the project treasury.
 10% to Main EVault.
@@ -1583,14 +1583,14 @@ and its core configuration is immutable.`,
     match: ["eflow", "e flow", "eflow receipt"],
     response: `EFLOW
 
-An EFlow is a completed payment
+An EFlow is a completed on-chain EON or USDT0 transaction
 recorded through an
 EnergonProjectAdapter.
 
 The adapter stores a permanent receipt
 containing the payer,
 token,
-payment reference,
+transaction reference,
 total received,
 project share,
 EVault share,
@@ -1611,7 +1611,7 @@ versioning,
 and reputation
 for active Energon Nodes.
 
-It does not custody payment tokens.
+It does not custody tokens associated with EFlows.
 
 It does not custody NFTs.
 
@@ -1811,7 +1811,7 @@ It provides on-chain logic for:
 • claims
 • reserve protections
 • maturity tiers
-• payout controls
+• claim execution limits
 
 EVault includes a constrained
 controller role.

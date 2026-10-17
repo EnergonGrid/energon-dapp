@@ -3,11 +3,16 @@ import { getQoriResponse, getVisitorMenu } from "./qoriKnowledge";
 import { getVisitorEchoResponse } from "./qoriVisitorEchoes";
 import { getCoherentEchoResponse } from "./qoriCoherentEchoes";
 import { getVocabularyResponse } from "./qoriVocabulary";
+import { detectIntent } from "./conversation/intentRouter";
 import {
   buildGuardianDialogueResponse,
   buildEmpDialogueResponse,
 } from "./qoriConversation";
-import { typeText, stopTyping, maybeAddSignalDegradation } from "./qoriEffects";
+import { typeText, stopTyping } from "./qoriEffects";
+import {
+  advanceConversationContext,
+  resolveContextualQuery,
+} from "./conversation/conversationContext";
 import {
   getStateVisuals,
   getSystemObservation,
@@ -641,6 +646,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const eventQueueRef = useRef([]);
   const eventPlayingRef = useRef(false);
   const sessionEpochRef = useRef(0);
+  const conversationContextRef = useRef(null);
   const sessionTimersRef = useRef(new Set());
   const openRef = useRef(open);
   const guardianMemoryRecordedRef = useRef(false);
@@ -799,6 +805,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }
 
   function resetConversation(nextCtx = null) {
+    conversationContextRef.current = null;
     sessionEpochRef.current += 1;
     stopTyping(typingRef);
     for (const timer of sessionTimersRef.current) clearTimeout(timer);
@@ -985,39 +992,6 @@ export default function QoriNode({ hideOrb = true } = {}) {
     );
   }
 
-  function scheduleReturnToVisitorMenu(delay = 45000) {
-    if (isCoherentQori()) return;
-
-    clearReturnMenuTimer();
-
-    returnMenuRef.current = scheduleSessionTimeout(() => {
-      if (screenRef.current === "menu") return;
-
-      if (userIsTypingOrHoldingText()) {
-        scheduleReturnToVisitorMenu(45000);
-        return;
-      }
-
-      showVisitorMenu();
-    }, delay);
-  }
-
-  function resetReturnMenuAfterTyping(nextValue = "") {
-    clearReturnMenuTimer();
-    clearAmbientTimer();
-
-    returnMenuRef.current = scheduleSessionTimeout(() => {
-      if (String(nextValue).trim() || userIsTypingOrHoldingText()) {
-        if (isVisitorFlow()) scheduleReturnToVisitorMenu(45000);
-        else scheduleAmbientObservation(90000);
-        return;
-      }
-
-      if (isVisitorFlow()) showVisitorMenu();
-      else scheduleAmbientObservation(60000);
-    }, 90000);
-  }
-
   function answerLive(text, tone = "system") {
     clearReturnMenuTimer();
     clearAmbientTimer();
@@ -1029,7 +1003,6 @@ export default function QoriNode({ hideOrb = true } = {}) {
       () => {
         setThinking(false);
         if (isCoherentQori()) scheduleAmbientObservation(90000);
-        else scheduleReturnToVisitorMenu(45000);
         scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -1042,6 +1015,28 @@ export default function QoriNode({ hideOrb = true } = {}) {
     const q = normalizeInput(cleanInput);
     const query = visitorQueryFromInput(q);
 
+    // Educational questions use existing knowledge, not live EMP state.
+    if (detectIntent(cleanInput) === "education") {
+      const baseAnswer = getQoriResponse(query, { mode: "visitor" });
+      const visitorEcho = getVisitorEchoResponse(cleanInput);
+
+      const answer = visitorEcho
+        ? `${baseAnswer}\n\n${visitorEcho}`
+        : baseAnswer;
+
+      transmit(
+        answer,
+        30,
+        () => {
+          setThinking(false);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
+        },
+        visitorEcho ? "echo" : "system"
+      );
+
+      return true;
+    }
+
     const empResponse = buildEmpDialogueResponse(
       cleanInput,
       withEmpObservation(latestCtxRef.current),
@@ -1053,7 +1048,6 @@ export default function QoriNode({ hideOrb = true } = {}) {
         30,
         () => {
           setThinking(false);
-          scheduleReturnToVisitorMenu(45000);
           scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
         },
         "system",
@@ -1128,17 +1122,18 @@ _`,
     }
 
     const visitorEcho = getVisitorEchoResponse(cleanInput);
-    let answer = visitorEcho || getQoriResponse(query, { mode: "visitor" });
+    let answer = getQoriResponse(query, { mode: "visitor" });
     const tone = visitorEcho ? "echo" : "system";
 
-    if (!visitorEcho) answer = maybeAddSignalDegradation(answer);
+    if (visitorEcho) {
+      answer = `${answer}\n\n${visitorEcho}`;
+    }
 
     transmit(
       answer,
       30,
       () => {
         setThinking(false);
-        scheduleReturnToVisitorMenu(45000);
         scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
       },
       tone
@@ -1184,6 +1179,35 @@ ${randomGuardianPrompt()}`);
       return true;
     }
 
+    // Answer conceptual questions before live EMP observations.
+    if (detectIntent(cleanInput) === "education") {
+      const baseAnswer = getQoriResponse(
+        cleanInput,
+        { mode: "coherent" }
+      );
+
+      const coherentEcho = getCoherentEchoResponse(cleanInput);
+
+      answerLive(
+        coherentEcho
+          ? `${baseAnswer}\n\n${coherentEcho}`
+          : baseAnswer
+      );
+
+      return true;
+    }
+
+    // EMP-specific questions take priority over generic status.
+    const empResponse = buildEmpDialogueResponse(
+      cleanInput,
+      withEmpObservation(liveCtx)
+    );
+
+    if (empResponse) {
+      answerLive(empResponse);
+      return true;
+    }
+
     if (q.includes("status")) {
       answerLive(getSystemObservation(withEmpObservation(liveCtx)));
       return true;
@@ -1210,6 +1234,26 @@ ${randomGuardianPrompt()}`);
 
     const coherentEcho = getCoherentEchoResponse(cleanInput);
 
+    const vocabulary = getVocabularyResponse(cleanInput);
+
+    if (vocabulary) {
+      transmit(
+        `${vocabulary}${coherentEcho ? `\n\n${coherentEcho}` : ""}
+
+${randomGuardianPrompt()}
+
+_`,
+        30,
+        () => {
+          setThinking(false);
+          scheduleAmbientObservation(90000);
+          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
+        },
+        "system"
+      );
+      return true;
+    }
+
     if (coherentEcho) {
       transmit(
         coherentEcho + `
@@ -1224,26 +1268,6 @@ _`,
           scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
         },
         "echo"
-      );
-      return true;
-    }
-
-    const vocabulary = getVocabularyResponse(cleanInput);
-
-    if (vocabulary) {
-      transmit(
-        vocabulary + `
-
-${randomGuardianPrompt()}
-
-_`,
-        30,
-        () => {
-          setThinking(false);
-          scheduleAmbientObservation(90000);
-          scheduleSessionTimeout(() => inputRef.current?.focus(), 50);
-        },
-        "system"
       );
       return true;
     }
@@ -1353,7 +1377,6 @@ _`,
           () => {
             setThinking(false);
             screenRef.current = "answer";
-            scheduleReturnToVisitorMenu(45000);
           },
           "system"
         );
@@ -1557,6 +1580,26 @@ _`;
 
     if (!clean || thinking || isTyping) return;
 
+    // Keep Visitor and Guardian conversation subjects separate.
+    const walletAddress = String(
+      latestCtxRef.current.walletAddress || ""
+    ).trim().toLowerCase();
+
+    const scope = isVisitorFlow()
+      ? "visitor"
+      : `guardian:${walletAddress}`;
+
+    conversationContextRef.current = advanceConversationContext(
+      clean,
+      conversationContextRef.current,
+      scope
+    );
+
+    const contextualQuery = resolveContextualQuery(
+      clean,
+      conversationContextRef.current
+    );
+
     clearReturnMenuTimer();
     clearAmbientTimer();
     setInput("");
@@ -1566,8 +1609,8 @@ _`;
     transmit("INTERPRETING SIGNAL...\n\n_", 34, undefined, "system");
 
     scheduleSessionTimeout(() => {
-      if (isVisitorFlow()) handleVisitorMessage(clean);
-      else handleCoherentMessage(clean);
+      if (isVisitorFlow()) handleVisitorMessage(contextualQuery);
+      else handleCoherentMessage(contextualQuery);
     }, 1000);
   }
 
@@ -1667,7 +1710,6 @@ _`;
                   const nextValue = e.target.value;
                   setInput(nextValue);
                   resetSilentTimer();
-                  resetReturnMenuAfterTyping(nextValue);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") sendMessage();

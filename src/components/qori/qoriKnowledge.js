@@ -289,7 +289,7 @@ or Node deletion mechanism.
 
 The Network identifies Nodes.
 
-It does not rewrite their payment law.`,
+It does not rewrite their adapter rules.`,
     ],
   },
 
@@ -312,12 +312,12 @@ Activation requires exactly
 2,000 WFLR.
 
 After activation,
-supported project payments use:
+supported project EFlows use:
 
 • EON
 • USDT0
 
-Each successful payment is divided:
+Each completed EFlow allocates the received amount:
 
 90%:
 Project treasury
@@ -330,10 +330,10 @@ administrator,
 pause,
 upgrade,
 mutable treasury,
-or mutable payment split.
+or mutable 90/10 allocation.
 
-Completed payments create
-permanent EFlow receipts.`,
+Completed EFlows generate
+permanent receipts.`,
     ],
   },
 
@@ -347,10 +347,10 @@ value and Guardian-action layer.
 
 It supports protocol contributions,
 Guardian registration,
-claim accounting,
+commitment and claim tracking,
 reserve protections,
 maturity rules,
-and payout controls.
+and claim execution limits.
 
 EVault has a controller role,
 but that authority is constrained
@@ -388,7 +388,7 @@ It records:
 • SERVICE reputation
 
 The Registry does not custody
-project-payment tokens.
+tokens associated with EFlows.
 
 It does not custody NFTs.
 
@@ -458,7 +458,7 @@ The Registry supplies the exact:
 
 NFT Delivery does not price NFTs,
 process EFlows,
-or accept EON or USDT0 payments.
+or collect EON or USDT0 for NFT delivery.
 
 It has no owner,
 administrator,
@@ -501,6 +501,25 @@ to Main EVault.`,
   },
 
   {
+    keys: ["wallet", "wallet setup", "bifrost", "metamask", "ledger"],
+    responses: [
+      `WALLET SETUP
+
+Recommended path:
+
+1. Install Bifrost wallet
+2. Save recovery phrase
+3. Switch to Flare Mainnet
+4. Connect to Energon
+5. Acquire one EnergonCube
+
+Bifrost is recommended first for mobile.
+
+MetaMask and Ledger are also supported.`,
+    ],
+  },
+
+  {
     keys: ["energon", "project", "protocol"],
     responses: [
       `ENERGON
@@ -522,25 +541,6 @@ Maximum EON supply:
   },
 
   {
-    keys: ["wallet", "wallet setup", "bifrost", "metamask", "ledger"],
-    responses: [
-      `WALLET SETUP
-
-Recommended path:
-
-1. Install Bifrost wallet
-2. Save recovery phrase
-3. Switch to Flare Mainnet
-4. Connect to Energon
-5. Acquire one EnergonCube
-
-Bifrost is recommended first for mobile.
-
-MetaMask and Ledger are also supported.`,
-    ],
-  },
-
-  {
     keys: ["whitepaper", "white paper"],
     responses: [
       `WHITEPAPER
@@ -556,17 +556,78 @@ Read the rules before entering the Grid.`,
     ],
   },
 
-  {
-    keys: ["emp"],
-    responses: [
-      `EMP
+    {
+      keys: ["how does emp work"],
+      responses: [
+        `Alright, let's open the hood. 🔧
 
-EMP expands the deeper protocol structure.
+Energon doesn't need someone sitting around pressing buttons every ten minutes. When enough time has passed, a wallet can call the Controller, and the contract determines whether the next progression is allowed.
 
-It is intended after the Whitepaper
-for extended understanding.`,
-    ],
-  },
+The EON supply already exists. The Controller distributes or burns EON from its reserves according to its rules.
+
+Your EnergonCube balance also determines your Guardian state:
+
+0 cubes: Silent.
+
+1 cube: Coherent.
+
+2 or more: Fractured.
+
+Yes, in this Grid, collecting extra keys can actually break your coherence. A little unusual, I know. 😏
+
+Beyond that, Main EVault handles commitments, claims, and reserve protections. The Network architecture defines how project Nodes and EFlows fit into the ecosystem.
+
+EMP explains how these pieces relate. It doesn't operate them.
+
+Still curious? We can go deeper.`,
+      ],
+    },
+    {
+      keys: ["explain emp architecture"],
+      responses: [
+        `Oh, we're going deeper? I like your curiosity. 🧠
+
+Here's what makes Energon interesting.
+
+The foundation has three major pieces: EON, EnergonCube, and the Controller.
+
+EON provides the token supply. EnergonCube establishes Guardian identity. The Controller handles eligible progression, distribution, and burn rules.
+
+Then comes the expanded architecture.
+
+Main EVault defines reserve protections and Guardian commitment and claim mechanisms.
+
+The Energon Network establishes the framework for authentic project Nodes, while adapters define supported EFlows. The Registry records project activity, and specialized components cover SERVICE Resolution and NFT Delivery.
+
+Here's the important part: adding new components doesn't give them permission to rewrite the original Energon foundation.
+
+Each component has its own responsibilities and boundaries.
+
+I know, keeping everything accountable to clearly defined rules. What a radical concept. 😉
+
+That's the purpose of EMP: understanding the architecture without pretending someone needs to control every part of it.
+
+One wallet. One cube. One Guardian.`,
+      ],
+    },
+    {
+      keys: ["emp"],
+      responses: [
+        `EMP stands for Energon Management Protocol.
+
+It's the operational guide to how Energon works, how its different components connect, and how activity is recorded across the Grid.
+
+The Whitepaper establishes Energon's foundation. EMP explains the architecture built around it—from Guardian identity and the ten-minute clock to EON burns, four-year halvings, Main EVault, and the wider Energon Network.
+
+And before you ask, no, EMP doesn't secretly run everything. Despite having "Management" in its name, there's no giant red button that controls the Grid. 😏
+
+The contracts establish the rules. The blockchain records what happens. EMP helps you understand it all.
+
+Think of it as a window into the machinery.
+
+Want me to show you how those moving parts work? 🔧`,
+      ],
+    },
 
   {
     keys: ["mint", "mint site", "dapp", "open mint", "acquire"],

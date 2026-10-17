@@ -60,7 +60,6 @@ const INTENTS = [
       "onboarding",
       "announcement",
       "whitepaper",
-      "emp",
     ],
   },
 
@@ -120,6 +119,43 @@ export function detectIntent(input = "") {
   const q = normalize(input);
 
   if (!q) return "conversation";
+
+  // Document navigation takes priority over general topic matching.
+  if (hasAny(q, [
+    "read emp",
+    "read the emp",
+    "open emp",
+    "open the emp",
+    "view emp",
+    "view the emp",
+  ])) {
+    return "navigation";
+  }
+
+  // EMP operational questions must not fall into Community.
+  if (
+    hasAny(q, ["emp"]) &&
+    hasAny(q, [
+      "how is",
+      "status",
+      "observation",
+      "health",
+      "state",
+      "reserves",
+      "threshold",
+    ])
+  ) {
+    return "observe";
+  }
+
+  // Educational questions should not become generic reflections.
+  // Keep live EMP observations and document navigation above this rule.
+  if (
+    /^(?:what is|how does|why does)\s+(?:(?:the|an?)\s+)?(?:emp|evault|e vault|energon network)\b/.test(q) ||
+    /^explain\s+emp\s+architecture\b/.test(q)
+  ) {
+    return "education";
+  }
 
   const found = INTENTS.find((intent) => hasAny(q, intent.keywords));
 
