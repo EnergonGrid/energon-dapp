@@ -5,6 +5,16 @@ import { getCoherentEchoResponse } from "./qoriCoherentEchoes";
 import { getVocabularyResponse } from "./qoriVocabulary";
 import { detectIntent } from "./conversation/intentRouter";
 import {
+  VISITOR_WELCOME,
+  VISITOR_DECLINE,
+} from "./conversation/visitorGuidance";
+import { pickVisitorOpening } from "./conversation/visitorOpenings";
+import {
+  planLearningTurn,
+  getLearningStep,
+} from "./conversation/visitorLearningCycle";
+import { getVisitorTopicAnswer } from "./conversation/visitorTopicAnswers";
+import {
   buildGuardianDialogueResponse,
   buildEmpDialogueResponse,
 } from "./qoriConversation";
@@ -647,6 +657,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
   const eventPlayingRef = useRef(false);
   const sessionEpochRef = useRef(0);
   const conversationContextRef = useRef(null);
+  const visitorPendingRef = useRef("");
+  const visitorOpeningRef = useRef(null);
   const sessionTimersRef = useRef(new Set());
   const openRef = useRef(open);
   const guardianMemoryRecordedRef = useRef(false);
@@ -806,6 +818,8 @@ export default function QoriNode({ hideOrb = true } = {}) {
 
   function resetConversation(nextCtx = null) {
     conversationContextRef.current = null;
+    visitorPendingRef.current = "";
+    visitorOpeningRef.current = null;
     sessionEpochRef.current += 1;
     stopTyping(typingRef);
     for (const timer of sessionTimersRef.current) clearTimeout(timer);
@@ -960,6 +974,7 @@ export default function QoriNode({ hideOrb = true } = {}) {
   }
 
   function showVisitorMenu() {
+    visitorPendingRef.current = "";
     const liveCtx = latestCtxRef.current;
 
     clearReturnMenuTimer();
@@ -992,6 +1007,27 @@ export default function QoriNode({ hideOrb = true } = {}) {
     );
   }
 
+  function showVisitorWelcome() {
+    if (!isVisitorFlow()) {
+      showVisitorMenu();
+      return;
+    }
+
+    clearReturnMenuTimer();
+    clearAmbientTimer();
+    setThinking(false);
+    visitorOpeningRef.current = pickVisitorOpening(VISITOR_WELCOME);
+    visitorPendingRef.current = "welcome";
+    screenRef.current = "answer";
+
+    transmit(
+      visitorOpeningRef.current.text + "\n\n_",
+      30,
+      () => scheduleSessionTimeout(() => inputRef.current?.focus(), 50),
+      "system"
+    );
+  }
+
   function answerLive(text, tone = "system") {
     clearReturnMenuTimer();
     clearAmbientTimer();
@@ -1013,6 +1049,64 @@ export default function QoriNode({ hideOrb = true } = {}) {
     screenRef.current = "answer";
 
     const q = normalizeInput(cleanInput);
+
+    const directNavigation = q === "wallet setup";
+    const plan = directNavigation
+      ? { action: "freeform" }
+      : planLearningTurn(
+          cleanInput,
+          visitorPendingRef.current,
+          visitorOpeningRef.current?.id || ""
+        );
+
+    if (plan.action !== "freeform") {
+      visitorPendingRef.current = plan.pending;
+
+      if (plan.action === "menu") {
+        showVisitorMenu();
+        return true;
+      }
+      if (plan.action === "decline") {
+        answerLive(VISITOR_DECLINE);
+        return true;
+      }
+      if (plan.action === "navigate-observer") {
+        setThinking(false);
+        openLandingUrl(`${window.location.origin}/observer`);
+        return true;
+      }
+      if (plan.action === "lesson") {
+        const step = getLearningStep(plan.topic);
+        if (!step) return false;
+
+        conversationContextRef.current = advanceConversationContext(
+          step.query, conversationContextRef.current, "visitor"
+        );
+
+        const base = getVisitorTopicAnswer(plan.topic) ||
+          getQoriResponse(step.query, { mode: "visitor" });
+
+        const echo = getVisitorEchoResponse(step.query);
+        const clockEnding = "Still curious? We can go deeper.";
+        const lessonText =
+          plan.topic === "clock" &&
+          base.trimEnd().endsWith(clockEnding)
+            ? base.trimEnd().slice(0, -clockEnding.length).trimEnd()
+            : base;
+
+        const alreadyAsked = lessonText.trimEnd().endsWith(step.question);
+        const explanation = alreadyAsked
+          ? lessonText.trimEnd().slice(0, -step.question.length).trimEnd()
+          : lessonText;
+
+        answerLive(
+          `${explanation}${echo ? `\n\n${echo}` : ""}\n\n${step.question}`,
+          echo ? "echo" : "system"
+        );
+        return true;
+      }
+    }
+    visitorPendingRef.current = "";
     const query = visitorQueryFromInput(q);
 
     // Educational questions use existing knowledge, not live EMP state.
@@ -1543,7 +1637,7 @@ _`;
             screenRef.current = "answer";
             scheduleAmbientObservation(90000);
           } else {
-            scheduleSessionTimeout(showVisitorMenu, 900);
+            scheduleSessionTimeout(showVisitorWelcome, 900);
           }
 
           scheduleSessionTimeout(() => inputRef.current?.focus(), 250);
@@ -1628,6 +1722,14 @@ _`;
 
     return () => window.removeEventListener("energon:open-qori", openFromProtocol);
   }, []);
+
+  const inputHint = thinking || isTyping
+    ? "Q.O.R.I transmitting..."
+    : isVisitorFlow()
+    ? visitorPendingRef.current
+      ? "You can answer yes, no, or ask your own question."
+      : "Ask Q.O.R.I or connect wallet..."
+    : "Speak to Q.O.R.I...";
 
   return (
     <>
@@ -1714,13 +1816,9 @@ _`;
                 onKeyDown={(e) => {
                   if (e.key === "Enter") sendMessage();
                 }}
-                placeholder={
-                  thinking || isTyping
-                    ? "Q.O.R.I transmitting..."
-                    : isVisitorFlow()
-                    ? "Ask Q.O.R.I or connect wallet..."
-                    : "Speak to Q.O.R.I..."
-                }
+                placeholder=""
+                aria-label="Ask Q.O.R.I"
+                aria-describedby="qori-input-hint"
                 style={inputStyle}
               />
 
@@ -1732,6 +1830,18 @@ _`;
                 ↗
               </button>
             </div>
+            <div id="qori-input-hint" style={inputHintStyle}>
+              {inputHint}
+            </div>
+            {isVisitorFlow() && (
+              <button
+                type="button"
+                onClick={showVisitorMenu}
+                style={visitorHomeStyle}
+              >
+                Home
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1863,6 +1973,31 @@ const inputWrapStyle = {
   borderRadius: 14,
   overflow: "hidden",
   background: "rgba(0,18,40,0.7)",
+};
+
+const visitorHomeStyle = {
+  display: "block",
+  marginTop: 8,
+  marginLeft: "auto",
+  padding: "6px 12px",
+  border: "1px solid rgba(45,170,255,0.4)",
+  borderRadius: 8,
+  background: "transparent",
+  color: "#a9d5e9",
+  fontFamily: "monospace",
+  fontSize: 12,
+  cursor: "pointer",
+};
+
+const inputHintStyle = {
+  marginTop: 8,
+  padding: "0 4px",
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: "#a9d5e9",
+  textAlign: "center",
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
 };
 
 const inputStyle = {
