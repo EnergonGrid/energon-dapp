@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import portalStyles from "./QoriEarthPortal.module.css";
 import { getQoriResponse, getVisitorMenu } from "./qoriKnowledge";
 import { getVisitorEchoResponse } from "./qoriVisitorEchoes";
 import { getCoherentEchoResponse } from "./qoriCoherentEchoes";
@@ -1773,7 +1774,22 @@ _`;
               ×
             </button>
 
-            <div style={titleStyle(ctx)}>Q.O.R.I</div>
+            <div style={titleStyle(ctx)}>
+              {"Q."}
+              <a
+                href="https://earth.energon.app"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={portalStyles.earthPortal}
+                aria-label="Open E.A.R.T.H. in a new tab"
+              >
+                <span className={portalStyles.earthLetter}>O</span>
+                <span className={portalStyles.earthTooltip} aria-hidden="true">
+                  E.A.R.T.H.
+                </span>
+              </a>
+              {".R.I"}
+            </div>
 
             <div style={subTitleStyle}>
               {isVisitorFlow() ? "PUBLIC TERMINAL" : "GUARDIAN INTERFACE"}

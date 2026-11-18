@@ -1,0 +1,108 @@
+/* P139: Q.O.R.I. title O is the E.A.R.T.H. portal. Purely visual/navigation. */
+.earthPortal {
+  display: inline-block;
+  position: relative;
+  color: #1ec8ff;
+  text-decoration: none;
+  cursor: pointer;
+  outline-offset: 5px;
+  border-radius: 3px;
+  animation: earthSignalPulse 3.6s ease-in-out infinite;
+}
+
+.earthPortal:hover,
+.earthPortal:focus-visible {
+  animation: none;
+  color: #e5b863;
+  text-shadow: 0 0 14px rgba(229, 184, 99, 0.95);
+}
+
+.earthPortal:focus-visible {
+  outline: 2px solid #e5b863;
+}
+
+.earthTooltip {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 5px);
+  transform: translate(-50%, 4px);
+  z-index: 3;
+  padding: 5px 8px;
+  border: 1px solid rgba(229, 184, 99, 0.7);
+  border-radius: 6px;
+  background: #06111e;
+  box-shadow: 0 0 12px rgba(229, 184, 99, 0.2);
+  color: #f0d396;
+  font-family: monospace;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 1.1;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 160ms ease, transform 160ms ease, visibility 160ms ease;
+}
+
+.earthPortal:hover .earthTooltip,
+.earthPortal:focus-visible .earthTooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+@keyframes earthSignalPulse {
+  0%, 100% {
+    color: #1ec8ff;
+    text-shadow: 0 0 8px rgba(30, 200, 255, 0.7);
+  }
+  50% {
+    color: #d4a54d;
+    text-shadow: 0 0 15px rgba(212, 165, 77, 0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .earthPortal {
+    animation: none;
+    color: #d4a54d;
+    text-shadow: none;
+  }
+  .earthTooltip {
+    transition: none;
+  }
+}
+
+/* P139B: Jitter only the letter, not its link hitbox or tooltip. */
+.earthLetter {
+  display: inline-block;
+  transform-origin: center center;
+}
+
+@keyframes earthPortalFranticJitter {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  9%  { transform: translate(-1px, 1px) rotate(-6deg); }
+  18% { transform: translate(2px, -1px) rotate(5deg); }
+  27% { transform: translate(-2px, -1px) rotate(-7deg); }
+  36% { transform: translate(1px, 2px) rotate(6deg); }
+  45% { transform: translate(-1px, -2px) rotate(-4deg); }
+  54% { transform: translate(2px, 1px) rotate(7deg); }
+  63% { transform: translate(-2px, 1px) rotate(-6deg); }
+  72% { transform: translate(1px, -2px) rotate(5deg); }
+  81% { transform: translate(-1px, 2px) rotate(-7deg); }
+  90% { transform: translate(2px, 0) rotate(4deg); }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .earthPortal:hover .earthLetter {
+    animation: earthPortalFranticJitter 340ms linear infinite;
+  }
+}
+
+/* Respect visitors who request reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  .earthPortal:hover .earthLetter {
+    animation: none;
+  }
+}
